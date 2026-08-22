@@ -1,0 +1,7 @@
+# Named spend containers with their own budget (SPEC §4 `envelopes` table).
+#
+# Currently unused: trip/event tagging was descoped (SPEC §11 — `travel` and
+# `move_in` stay plain categories instead of splitting into category+tag).
+# Structure kept here in case tagging comes back into scope later.
+
+envelopes: []

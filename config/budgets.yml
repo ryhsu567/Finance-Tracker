@@ -1,0 +1,56 @@
+# Monthly budget targets — Scenario A only (SPEC §7.2/§11: Scenario B is
+# unreferenced by any formula in the source workbook, treated as dead).
+#
+# Time-versioned per SPEC §4 in *schema* (see schema.sql's budgets table,
+# keyed on effective_from) — but NOT actually implemented in the read path
+# yet: build_dashboard.py/app.js apply one flat target per category
+# regardless of date, so changing a number here changes it for every past
+# month too, not just going forward. Real versioning (resolve the correct
+# target per transaction month) is unbuilt; flag it if you want history
+# preserved when a target changes.
+#
+# Rewritten 2026-08-11 as forward-looking goals (not source-sheet-derived
+# scenario numbers anymore) — grocery trend + a hard $1,000/mo discretionary
+# cap, discussed and confirmed with the user, then gym/shopping/travel
+# revised again same day to user-set numbers and flipped from `lumpy` to
+# `variable` (see categories.yml), then sweet_treat/entertainment revised
+# once more. Discretionary total: 350+50+100+100+50+150+150 = $950/mo,
+# under the $1,000 cap. Displayed on the Budget page ordered by target
+# size, highest first (build_dashboard.py).
+
+scenario: current
+
+targets:
+  - category: rent
+    monthly_target: 1800.00     # matches actual, stable since May
+    effective_from: 2026-01-01
+  - category: groceries
+    monthly_target: 400.00      # up from 300 — recent months trending 237/328/588
+    effective_from: 2026-01-01
+  - category: utilities
+    monthly_target: 60.00
+    effective_from: 2026-01-01
+  - category: transportation
+    monthly_target: 100.00
+    effective_from: 2026-01-01
+  - category: eating_out
+    monthly_target: 350.00
+    effective_from: 2026-01-01
+  - category: sweet_treat
+    monthly_target: 50.00       # user-set 2026-08-11 (was 35)
+    effective_from: 2026-01-01
+  - category: gym
+    monthly_target: 50.00       # user-set 2026-08-11, now variable/pooled not lumpy
+    effective_from: 2026-01-01
+  - category: entertainment
+    monthly_target: 100.00      # user-set 2026-08-11 (was 75)
+    effective_from: 2026-01-01
+  - category: shopping
+    monthly_target: 150.00      # now variable/pooled not lumpy
+    effective_from: 2026-01-01
+  - category: other
+    monthly_target: 100.00
+    effective_from: 2026-01-01
+  - category: travel
+    monthly_target: 150.00      # user-set 2026-08-11 (was 200), now variable/pooled not lumpy
+    effective_from: 2026-01-01

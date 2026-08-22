@@ -1,0 +1,117 @@
+# Canonical category taxonomy. Hand-edited — the loader validates every
+# transaction's raw category against this file and FAILS LOUDLY on anything
+# unmapped (SPEC §6.1). A silently dropped transaction is the bug this
+# project exists to prevent.
+#
+# cadence drives which progress metric the dashboard shows (SPEC §5):
+#   fixed    - binary paid/not-paid, no percentage bar
+#   variable - pace-adjusted vs day-of-month
+#   lumpy    - annualized vs trailing-12-months
+# cadence only applies to expense categories.
+#
+# Decision (SPEC §11): merged three sparse/inconsistent categories into a
+# same-cadence sibling (sweet_treat stays separate from eating_out,
+# overriding an earlier attempt to fold it in):
+#   insurance -> utilities   (both baseline/variable, insurance is $0 so far)
+#   flights -> travel        (both lumpy, flights *is* trip spend)
+#   move_in -> shopping      (both lumpy, one-off purchases either way)
+#
+# Decision (SPEC §11): `going_out` renamed `entertainment` and widened —
+# `other` was hiding real recreational spend (Bay to Breakers, Movies,
+# Vegas Gambling, Tennis, Running Gels) under the same raw "Other" label as
+# annual fees/subscriptions/personal care, because the source sheet's
+# Category column can't tell them apart. See raw_expense_description_labels
+# below for the description-based split (same trick as income's `Other`).
+# 11 expense categories total.
+
+expense:
+  housing:
+    rent:           { budget_group: baseline,      cadence: fixed }
+    utilities:      { budget_group: baseline,      cadence: variable }
+  food_in:
+    # Decision (2026-08-11): moved from `baseline` to `discretionary` (user
+    # preference) - pooled with the other discretionary categories now,
+    # checked per-category before.
+    groceries:      { budget_group: discretionary, cadence: variable }
+  transport:
+    transportation: { budget_group: baseline,      cadence: variable }
+  food_out:
+    eating_out:     { budget_group: discretionary, cadence: variable }
+    sweet_treat:    { budget_group: discretionary, cadence: variable }
+  social:
+    entertainment:  { budget_group: discretionary, cadence: variable }
+  health:
+    # Decision (2026-08-11, overrides the §11/§7.6 `lumpy` call): user
+    # preference is a flat monthly pace for gym like the rest of
+    # discretionary, not an annualized YTD read. Pooled with the others now.
+    gym:            { budget_group: discretionary, cadence: variable }
+  personal:
+    shopping:       { budget_group: discretionary, cadence: variable }
+    other:          { budget_group: discretionary, cadence: variable }
+  travel:
+    # Decision (2026-08-11, overrides the earlier `lumpy` call): same as
+    # gym/shopping above - user wants it paced monthly and pooled, not
+    # annualized. No discretionary category is `lumpy` right now; the
+    # Budget page's "lumpy" section hides itself when this list is empty.
+    travel:         { budget_group: discretionary, cadence: variable }
+
+income:
+  salary: {}
+  gift: {}
+  side_hustle: {}
+  tax_refund: {}
+  reimbursement: {}
+  resale: {}
+
+transfer:
+  stock_sale: {}
+  deposit_return: {}
+
+# --- raw label -> canonical category -------------------------------------
+
+# Expenses tab `Category` column, verbatim -> canonical category.
+raw_expense_labels:
+  Rent: rent
+  Groceries: groceries
+  Utilities: utilities
+  Insurance: utilities         # merged (SPEC §11) — always $0 so far
+  Transportation: transportation
+  Flights: travel               # merged (SPEC §11) — flights are trip spend
+  "Eating Out": eating_out
+  Food: eating_out              # known bug (SPEC §6.1): "Lunch w/ Shashank" mistyped, silently dropped by the old summary
+  "Sweet Treat": sweet_treat
+  "Going Out": entertainment    # renamed (SPEC §11)
+  Gym: gym
+  Shopping: shopping
+  Sho: shopping                 # typo, one row ("Haus Beater")
+  Other: other                  # default; specific rows overridden below by description
+  Gambling: entertainment       # renamed (SPEC §11) — was folded into `other`
+  Travel: travel
+  "Move-in": shopping           # merged (SPEC §11) — one-off purchases either way
+
+# Only checked when Category == "Other" — the raw sheet files these under
+# the same label as annual fees/subscriptions/personal care, so only the
+# description can tell them apart (same trick as income's `Other` below).
+raw_expense_description_labels:
+  "Bay to Breakers": entertainment
+  Movies: entertainment
+  "Tennis Balls": entertainment
+  "Tennis Lights": entertainment
+  "Running Gels": entertainment
+
+# Income tab: the raw `Category` column only has 4 distinct values
+# (Deloitte / Other / Holidays / Side Hustle?) — everything else is filed
+# under "Other" and must be distinguished by the `Income` description column.
+raw_income_category_labels:
+  Deloitte: salary
+  Holidays: gift
+  "Side Hustle?": side_hustle
+
+raw_income_description_labels:       # only checked when Category == "Other"
+  Underdog: resale
+  "FB Marketplace BS": resale
+  "Eye Medical Reimbursement": reimbursement
+  "Tax Refund - Federal": tax_refund
+  "Tax Refund - State": tax_refund
+  "Stock Money": stock_sale          # kind: transfer, not income
+  "Security Deposit": deposit_return # kind: transfer, not income
