@@ -98,6 +98,7 @@ raw_expense_description_labels:
   "Tennis Balls": entertainment
   "Tennis Lights": entertainment
   "Running Gels": entertainment
+  HEYTEA: sweet_treat            # bubble tea/dessert, not a meal (user decision, 2026-09-09)
 
 # Income tab: the raw `Category` column only has 4 distinct values
 # (Deloitte / Other / Holidays / Side Hustle?) — everything else is filed

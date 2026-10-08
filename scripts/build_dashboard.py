@@ -116,9 +116,27 @@ def compute(categories_cfg, targets, txns):
     months = sorted({month_key(t["date"]) for t in txns})
     latest_month = months[-1]
     latest_date = max(date.fromisoformat(t["date"]) for t in txns if month_key(t["date"]) == latest_month)
-    days_in_latest = (date(latest_date.year + (latest_date.month == 12), latest_date.month % 12 + 1, 1)
-                       - date(latest_date.year, latest_date.month, 1)).days
-    day_of_month = latest_date.day
+
+    def days_in_month(year, month):
+        return (date(year + (month == 12), month % 12 + 1, 1) - date(year, month, 1)).days
+
+    # Pace is measured against the real calendar date, not the newest
+    # transaction we happen to have loaded - otherwise staging one late
+    # transaction (an income row entered a few days after it landed, say)
+    # silently drags "day of month" along with it, understating how much
+    # of the month's expense data is actually still missing. If the latest
+    # month in the data isn't the actual current month (nothing loaded yet
+    # for this month), treat that last month as fully elapsed (pace 1.0)
+    # rather than pretending it's still in progress.
+    today = date.today()
+    current_month = f"{today.year:04d}-{today.month:02d}"
+    if latest_month == current_month:
+        day_of_month = today.day
+        days_in_latest = days_in_month(today.year, today.month)
+    else:
+        y, mo = (int(p) for p in latest_month.split("-"))
+        days_in_latest = days_in_month(y, mo)
+        day_of_month = days_in_latest
     live_pace = day_of_month / days_in_latest
 
     by_month = {m: dict(income=0.0, expense=0.0, expenseByCat=defaultdict(float),
@@ -684,7 +702,7 @@ function renderDashboard(monthIdx) {
   document.getElementById('sc-baseline-note').textContent = baseline.onTrack + ' of ' + baseline.withTarget + ' categories on track this month';
   const baseBadge = document.querySelector('#sc-baseline .m-badge');
   baseBadge.textContent = baseline.withTarget ? STATUS_TEXT[baseStatus] : '';
-  baseBadge.className = 'status-badge ' + baseStatus;
+  baseBadge.className = 'status-badge m-badge ' + baseStatus;
 
   const discPool = poolResult(DATA, monthIdx, 'discretionary');
   const discColor = STATUS_HEX[discPool.status];
@@ -694,7 +712,7 @@ function renderDashboard(monthIdx) {
   document.getElementById('sc-discretionary-fill').style.background = discColor;
   const discBadge = document.querySelector('#sc-discretionary .m-badge');
   discBadge.textContent = STATUS_TEXT[discPool.status];
-  discBadge.className = 'status-badge ' + discPool.status;
+  discBadge.className = 'status-badge m-badge ' + discPool.status;
 
   renderCategoryPercentList(document.getElementById('dash-top-cats'), DATA, monthIdx, CATEGORY_LABELS_DASH);
 }
