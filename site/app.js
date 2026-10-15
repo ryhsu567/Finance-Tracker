@@ -246,7 +246,11 @@ function renderPoolRow(rootEl, result) {
 }
 
 function renderBarList(containerEl, entries, color, fmt, opts) {
-  // entries: [[catKey, label, value], ...]. opts: {onClick(catKey), selectedKey}
+  // entries: [[catKey, label, value], ...].
+  // opts: {onClick(catKey), selectedKey, colorFor(catKey)}
+  // colorFor wins over the flat `color` argument - used where each row is a
+  // distinct entity that owns a hue (investment accounts), not N rows of one
+  // measure (categories of spend).
   opts = opts || {};
   containerEl.textContent = '';
   if (!entries.length) {
@@ -270,7 +274,7 @@ function renderBarList(containerEl, entries, color, fmt, opts) {
     const fill = document.createElement('div');
     fill.className = 'jsbar-fill';
     fill.style.width = (max ? (val / max) * 100 : 0) + '%';
-    fill.style.background = color;
+    fill.style.background = opts.colorFor ? opts.colorFor(catKey) : color;
     track.appendChild(fill);
     const val_ = document.createElement('div');
     val_.className = 'jsbar-value';

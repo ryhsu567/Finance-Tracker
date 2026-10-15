@@ -15,13 +15,16 @@ defaults only (not override-aware) — a retrospective view, not the
 interactive one.
 
 Emits:
-    site/index.html, expenses.html, income.html, budget.html
+    site/index.html, expenses.html, income.html, investments.html,
+    budget.html, import.html
     site/style.css, site/app.js  (rewritten every run, edit the source not these)
 
 Open site/index.html directly in a browser.
 """
 import json
+import math
 import sqlite3
+import statistics
 from collections import defaultdict
 from datetime import date
 from pathlib import Path
@@ -44,13 +47,20 @@ INCOME_LABELS = {
     "tax_refund": "Tax refund", "reimbursement": "Reimbursement", "resale": "Resale",
 }
 TRANSFER_LABELS = {"stock_sale": "Stock sale", "deposit_return": "Deposit return"}
+INVESTMENT_LABELS = {"brokerage": "Brokerage", "emergency_fund": "Emergency fund",
+                     "crypto": "Crypto"}
+# Fixed hue order, not cycled, and an account keeps its hue on every chart
+# it appears in — the three series tokens the rest of the site already
+# ships, no new colors invented for this page.
+INVESTMENT_COLORS = {"brokerage": "var(--series-1)", "emergency_fund": "var(--series-3)",
+                     "crypto": "var(--series-2)"}
 
 STATUS_HEX = {"good": "#0ca30c", "warning": "#fab219", "critical": "#d03b3b", "neutral": "#898781"}
 STATUS_TEXT = {"good": "on pace", "warning": "watch", "critical": "over pace", "neutral": "—"}
 
 NAV = [("index.html", "Dashboard"), ("expenses.html", "Expenses"),
-       ("income.html", "Income"), ("budget.html", "Budget"),
-       ("import.html", "Import")]
+       ("income.html", "Income"), ("investments.html", "Investments"),
+       ("budget.html", "Budget"), ("import.html", "Import")]
 
 
 # ---------------------------------------------------------------- data ----
@@ -82,13 +92,35 @@ def month_key(iso_date):
     return iso_date[:7]
 
 def label_for(cat):
-    return CATEGORY_LABELS.get(cat) or INCOME_LABELS.get(cat) or TRANSFER_LABELS.get(cat) or cat
+    return (CATEGORY_LABELS.get(cat) or INCOME_LABELS.get(cat)
+            or TRANSFER_LABELS.get(cat) or INVESTMENT_LABELS.get(cat) or cat)
 
 def money(x):
     if x is None:
         return "—"
     sign = "-" if x < 0 else ""
     return f"{sign}${abs(x):,.0f}"
+
+def money_compact(x):
+    """Axis-label money: $12k, not $12,236. Exact figures stay on the direct
+    labels and in tooltips, where precision is actually read."""
+    if abs(x) >= 1000:
+        thousands = x / 1000
+        return f"${thousands:,.0f}k" if abs(x) % 1000 < 1 else f"${thousands:,.1f}k"
+    return f"${x:,.0f}"
+
+
+def nice_step(raw):
+    """Round a raw tick interval up to a human one (1/2/3/5 x 10^n) so the
+    axis reads $0 / $3k / $6k / $9k / $12k instead of $0 / $3,059 / $6,118."""
+    if raw <= 0:
+        return 1.0
+    mag = 10 ** math.floor(math.log10(raw))
+    for m in (1, 2, 3, 5, 10):
+        if raw <= m * mag:
+            return m * mag
+    return 10 * mag
+
 
 def pct(x):
     return "—" if x is None else f"{x * 100:.0f}%"
@@ -139,9 +171,11 @@ def compute(categories_cfg, targets, txns):
         day_of_month = days_in_latest
     live_pace = day_of_month / days_in_latest
 
-    by_month = {m: dict(income=0.0, expense=0.0, expenseByCat=defaultdict(float),
+    by_month = {m: dict(income=0.0, expense=0.0, investment=0.0,
+                         expenseByCat=defaultdict(float),
                          incomeByCat=defaultdict(float), transferByCat=defaultdict(float),
-                         expenseTxns=[], incomeTxns=[])
+                         investmentByCat=defaultdict(float),
+                         expenseTxns=[], incomeTxns=[], investmentTxns=[])
                 for m in months}
 
     for t in txns:
@@ -159,14 +193,30 @@ def compute(categories_cfg, targets, txns):
         elif t["kind"] == "transfer":
             row["transferByCat"][t["category"]] += t["amount"]
             row["incomeTxns"].append(dict(txn_out, kind="transfer"))
+        elif t["kind"] == "investment":
+            # Never folded into expense: a contribution doesn't reduce net
+            # worth, it moves cash between accounts (SPEC §2/§5).
+            row["investment"] += t["amount"]
+            row["investmentByCat"][t["category"]] += t["amount"]
+            row["investmentTxns"].append(txn_out)
+        else:
+            # Every kind in load.py's VALID_KINDS needs a branch here.
+            # Falling through silently would drop the row from every view on
+            # the site — SPEC §6.1's failure mode, one layer downstream.
+            raise SystemExit(
+                f"build_dashboard: unhandled kind {t['kind']!r} "
+                f"({t['date']} {t['description']!r}) — add a branch in compute()."
+            )
 
     for m in months:
         by_month[m]["expenseTxns"].sort(key=lambda t: t["date"], reverse=True)
         by_month[m]["incomeTxns"].sort(key=lambda t: t["date"], reverse=True)
+        by_month[m]["investmentTxns"].sort(key=lambda t: t["date"], reverse=True)
         # plain dicts for JSON (defaultdict repr is fine but keep it tidy)
         by_month[m]["expenseByCat"] = dict(by_month[m]["expenseByCat"])
         by_month[m]["incomeByCat"] = dict(by_month[m]["incomeByCat"])
         by_month[m]["transferByCat"] = dict(by_month[m]["transferByCat"])
+        by_month[m]["investmentByCat"] = dict(by_month[m]["investmentByCat"])
 
     n_months = len(months)
 
@@ -174,6 +224,7 @@ def compute(categories_cfg, targets, txns):
     all_time_cat = defaultdict(float)
     all_time_income_cat = defaultdict(float)
     all_time_transfer_cat = defaultdict(float)
+    all_time_investment_cat = defaultdict(float)
     for m in months:
         for cat, v in by_month[m]["expenseByCat"].items():
             all_time_cat[cat] += v
@@ -181,8 +232,29 @@ def compute(categories_cfg, targets, txns):
             all_time_income_cat[cat] += v
         for cat, v in by_month[m]["transferByCat"].items():
             all_time_transfer_cat[cat] += v
+        for cat, v in by_month[m]["investmentByCat"].items():
+            all_time_investment_cat[cat] += v
 
-    monthly_series = [dict(month=m, income=by_month[m]["income"], expense=by_month[m]["expense"]) for m in months]
+    monthly_series = [dict(month=m, income=by_month[m]["income"], expense=by_month[m]["expense"],
+                            investment=by_month[m]["investment"]) for m in months]
+
+    # SPEC §5: contributions are judged against net cash flow, not against
+    # expenses — a month that invests more than it netted is drawing down
+    # cash rather than saving out of income, which the source sheets could
+    # not show at all. Derived per month, never stored.
+    investment_months = [
+        dict(month=m,
+             contributed=by_month[m]["investment"],
+             net=by_month[m]["income"] - by_month[m]["expense"],
+             drawdown=(by_month[m]["investment"] > 0
+                       and by_month[m]["investment"] > by_month[m]["income"] - by_month[m]["expense"]))
+        for m in months
+    ]
+    funded_months = [r for r in investment_months if r["contributed"] > 0]
+    # Median, not mean (SPEC §5): one $10k month would otherwise describe
+    # every month. Trailing 3 of the months that actually had a contribution.
+    recent_median = (statistics.median([r["contributed"] for r in funded_months[-3:]])
+                     if funded_months else None)
 
     # Lumpy-cadence categories are excluded from the paced pool (SPEC §5:
     # "a trip is one decision, not a monthly overrun") - matches app.js's
@@ -210,6 +282,8 @@ def compute(categories_cfg, targets, txns):
                   baseTarget=targets.get(cat))
         for cat in cadence_of
     }
+    investment_categories_json = {cat: dict(label=label_for(cat), color=INVESTMENT_COLORS[cat])
+                                   for cat in INVESTMENT_LABELS}
     income_categories_json = {cat: dict(label=label_for(cat), isTransfer=False) for cat in INCOME_LABELS}
     income_categories_json.update({cat: dict(label=label_for(cat), isTransfer=True) for cat in TRANSFER_LABELS})
 
@@ -220,6 +294,7 @@ def compute(categories_cfg, targets, txns):
         dayOfMonth=day_of_month,
         categories=categories_json,
         incomeCategories=income_categories_json,
+        investmentCategories=investment_categories_json,
         byMonth=by_month,
         order=dict(baseline=baseline_order, discretionary=discretionary_order),
     )
@@ -229,6 +304,11 @@ def compute(categories_cfg, targets, txns):
         all_time_expense_ranked=sorted(all_time_cat.items(), key=lambda kv: -kv[1]),
         all_time_income_ranked=sorted(all_time_income_cat.items(), key=lambda kv: -kv[1]),
         all_time_transfer_ranked=sorted(all_time_transfer_cat.items(), key=lambda kv: -kv[1]),
+        all_time_investment_ranked=sorted(all_time_investment_cat.items(), key=lambda kv: -kv[1]),
+        total_investment_all_time=sum(all_time_investment_cat.values()),
+        investment_months=investment_months,
+        recent_investment_median=recent_median,
+        has_investments=bool(all_time_investment_cat),
         monthly_pool_history=monthly_pool_history,
         live_pace=live_pace, day_of_month=day_of_month, n_months=n_months, latest_date=latest_date,
         total_income_all_time=sum(all_time_income_cat.values()),
@@ -290,7 +370,8 @@ def render_line_svg(chart_id, month_labels, series, y_fmt, tooltip_fmt):
     for s in series:
         pts = [(x_at(i), y_at(v)) for i, v in enumerate(s["values"])]
         path = "M " + " L ".join(f"{x:.1f} {y:.1f}" for x, y in pts)
-        lines.append(f'<path d="{path}" fill="none" stroke="{s["color"]}" stroke-width="2" '
+        dash = ' stroke-dasharray="5 4"' if s.get("dash") else ""
+        lines.append(f'<path d="{path}" fill="none" stroke="{s["color"]}" stroke-width="2"{dash} '
                       f'stroke-linejoin="round" stroke-linecap="round"/>')
         for x, y in pts:
             dots.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{s["color"]}" '
@@ -492,6 +573,143 @@ def render_bar_chart_svg(ranked, color="var(--series-1)", value_fmt=money):
     return f'<svg viewBox="0 0 {W} {H}" class="chart-svg">{"".join(bars)}</svg>'
 
 
+def render_legend(items, dashed_last=False):
+    """items: [(label, color), ...]. A legend is always present for >= 2
+    series, so identity never rests on color alone."""
+    keys = []
+    for i, (label, color) in enumerate(items):
+        dashed = dashed_last and i == len(items) - 1
+        swatch = (f'background:{color}; border-top:2px dashed {color}; height:0;'
+                  if dashed else f'background:{color}; height:8px; border-radius:2px;')
+        keys.append(f'<span class="legend-key"><span class="legend-swatch" style="{swatch}"></span>{esc(label)}</span>')
+    return f'<div class="legend">{"".join(keys)}</div>'
+
+
+def render_stacked_bar_svg(chart_id, month_labels, keys, values_by_month, colors, value_fmt=money):
+    """Stacked bars: magnitude per month *and* its composition, which a line
+    can't carry. values_by_month is one {key: amount} per month, keys in a
+    fixed order so an account keeps its hue and its slot when a month is
+    missing it.
+
+    Mark spec: 2px surface gap between segments, 4px rounded top on the
+    outermost segment only (the stack is anchored to the baseline), one
+    hit target per column rather than per segment — a $40 crypto sliver is
+    too thin to hover, and the useful tooltip is the whole month's split."""
+    n = len(month_labels)
+    totals = [sum(d.get(k, 0.0) for k in keys) for d in values_by_month]
+    if not n or not any(totals):
+        return '<p class="card-sub">No contributions recorded yet.</p>'
+
+    W, H = 760, 260
+    PAD_L, PAD_R, PAD_T, PAD_B = 52, 24, 22, 28
+    plot_w, plot_h = W - PAD_L - PAD_R, H - PAD_T - PAD_B
+    GAP, ROUND = 2, 4
+    step = nice_step(max(totals) * 1.08 / 4)
+    y_hi = step * 4
+    col_w = plot_w / n
+    bar_w = min(42.0, col_w * 0.62)
+
+    def x_at(i):
+        return PAD_L + col_w * (i + 0.5)
+
+    def y_at(v):
+        return PAD_T + plot_h - (v / y_hi) * plot_h
+
+    grid = []
+    for tick in range(5):
+        v = step * tick
+        y = y_at(v)
+        grid.append(f'<line x1="{PAD_L}" y1="{y:.1f}" x2="{W-PAD_R}" y2="{y:.1f}" stroke="var(--gridline)" stroke-width="1"/>'
+                    f'<text x="{PAD_L-8}" y="{y+4:.1f}" text-anchor="end" class="axis-label">{esc(money_compact(v))}</text>')
+    base_y = y_at(0)
+    grid.append(f'<line x1="{PAD_L}" y1="{base_y:.1f}" x2="{W-PAD_R}" y2="{base_y:.1f}" stroke="var(--baseline)" stroke-width="1.5"/>')
+
+    # Only the latest month and the biggest month get a direct total label —
+    # a number over every bar is noise, the rest is a hover away.
+    biggest = max(range(n), key=lambda i: totals[i])
+    labelled = {n - 1, biggest}
+
+    segs, labels, hits = [], [], []
+    for i, d in enumerate(values_by_month):
+        x = x_at(i) - bar_w / 2
+        present = [(k, d.get(k, 0.0)) for k in keys if d.get(k, 0.0) > 0]
+        cursor = base_y
+        for j, (k, v) in enumerate(present):
+            h = (v / y_hi) * plot_h
+            top = cursor - h
+            is_top = j == len(present) - 1
+            draw_h = max(1.0, h - (0 if is_top else GAP))
+            color = colors[k]
+            if is_top:
+                r = min(ROUND, draw_h, bar_w / 2)
+                segs.append(
+                    f'<path d="M {x:.1f} {top+draw_h:.1f} L {x:.1f} {top+r:.1f} '
+                    f'Q {x:.1f} {top:.1f} {x+r:.1f} {top:.1f} L {x+bar_w-r:.1f} {top:.1f} '
+                    f'Q {x+bar_w:.1f} {top:.1f} {x+bar_w:.1f} {top+r:.1f} '
+                    f'L {x+bar_w:.1f} {top+draw_h:.1f} Z" fill="{color}"/>')
+            else:
+                segs.append(f'<rect x="{x:.1f}" y="{top+GAP:.1f}" width="{bar_w:.1f}" '
+                            f'height="{draw_h:.1f}" fill="{color}"/>')
+            cursor = top
+        if totals[i] > 0 and i in labelled:
+            labels.append(f'<text x="{x_at(i):.1f}" y="{cursor-6:.1f}" text-anchor="middle" '
+                          f'class="end-label">{esc(value_fmt(totals[i]))}</text>')
+        rows = [[label_for(k), value_fmt(d.get(k, 0.0)), colors[k]] for k in keys if d.get(k, 0.0) > 0]
+        rows.append(["Total", value_fmt(totals[i]), None] if totals[i] > 0
+                     else ["No contributions", "", None])
+        hits.append(
+            f'<rect class="hit-target" data-tooltip-title="{esc(month_labels[i])}" '
+            f'data-tooltip-rows="{esc(json.dumps(rows))}" data-month-idx="{i}" '
+            f'x="{x_at(i)-col_w/2:.1f}" y="{PAD_T}" width="{col_w:.1f}" height="{plot_h}" fill="transparent"/>')
+
+    x_labels = [f'<text x="{x_at(i):.1f}" y="{H-8}" text-anchor="middle" class="axis-label">{esc(m[:3])}</text>'
+                for i, m in enumerate(month_labels)]
+
+    return f"""
+  <svg viewBox="0 0 {W} {H}" class="chart-svg">
+    {''.join(grid)}
+    {''.join(segs)}
+    {''.join(x_labels)}
+    {''.join(labels)}
+    {''.join(hits)}
+  </svg>"""
+
+
+def render_mix_bar(ranked, colors, value_fmt=money):
+    """One 100%-wide stacked bar: a share-of-whole read, where three numbers
+    don't justify a pie. Percentages are labelled directly, so the shares are
+    readable without measuring the segments."""
+    total = sum(v for _, v in ranked)
+    if not total:
+        return '<p class="card-sub">No contributions recorded yet.</p>'
+    W, H = 760, 56
+    GAP, ROUND = 2, 4
+    x = 0.0
+    segs, labels, spillover = [], [], []
+    usable = W - GAP * max(0, len(ranked) - 1)
+    for i, (cat, val) in enumerate(ranked):
+        w = usable * (val / total)
+        share = val / total
+        rows = [[label_for(cat), f"{value_fmt(val)} · {share*100:.0f}%", colors[cat]]]
+        segs.append(
+            f'<rect class="hit-target" data-tooltip-title="Mix" data-tooltip-rows="{esc(json.dumps(rows))}" '
+            f'x="{x:.1f}" y="0" width="{max(1.0, w):.1f}" height="22" rx="{ROUND}" fill="{colors[cat]}"/>')
+        text = f"{label_for(cat)} {share*100:.0f}%"
+        # Label the segment only if its own width can hold the text - a share
+        # test alone puts a 105px label on a 60px segment, straight into its
+        # neighbour. The rest are picked up by the shares line below.
+        if w >= len(text) * 6.4 + 8:
+            labels.append(f'<text x="{x + w/2:.1f}" y="40" text-anchor="middle" class="axis-label">'
+                          f'{esc(text)}</text>')
+        else:
+            spillover.append(text)
+        x += w + GAP
+    spill_html = (f'<div class="card-sub" style="margin-top:2px;">{esc(" · ".join(spillover))}</div>'
+                  if spillover else "")
+    return (f'<svg viewBox="0 0 {W} {H}" class="chart-svg">{"".join(segs)}{"".join(labels)}</svg>'
+            + spill_html)
+
+
 def render_stat_tile(tile_id, label, accent=None, with_delta=False, sparkline_values=None, spark_color=None):
     """Value/sub filled in by JS on load — id'd so app.js can find it."""
     style = f' style="--tile-accent:{accent}"' if accent else ""
@@ -606,6 +824,32 @@ def page_dashboard(d, warnings):
     <ul style="margin:6px 0 0; padding-left:18px;">{items}</ul>
   </div>"""
 
+    if d["has_investments"]:
+        drawdowns = [r for r in d["investment_months"] if r["drawdown"]]
+        total_inv = d["total_investment_all_time"]
+        share = (total_inv / d["total_income_all_time"]) if d["total_income_all_time"] else None
+        note = (f"{len(drawdowns)} month{'' if len(drawdowns) == 1 else 's'} contributed more than "
+                f"the month netted — funded from savings, not income."
+                if drawdowns else
+                "Every funded month came out of that month's income.")
+        investing_html = f"""
+  <div class="card">
+    <h2>Cash flow vs investing</h2>
+    <div class="card-sub">{esc(note)} Full breakdown on the
+      <a href="investments.html">Investments</a> tab.</div>
+    <div class="tiles" style="margin-bottom:0;">
+      {render_stat_tile_static("Contributed all time", money(total_inv), "var(--series-1)")}
+      {render_stat_tile_static("Share of income", pct(share))}
+      {render_stat_tile_static("Drawdown months", str(len(drawdowns)),
+                                "var(--warning)" if drawdowns else None)}
+    </div>
+  </div>"""
+    else:
+        investing_html = """
+  <div class="banner">No investment contributions in the ledger yet — add them in the
+    <a href="import.html">Import</a> tab and the cash-flow-vs-investing view on the
+    <a href="investments.html">Investments</a> tab fills in.</div>"""
+
     body = f"""
   <div class="page-header">
     <h1>Dashboard</h1>
@@ -672,8 +916,7 @@ def page_dashboard(d, warnings):
     </div>
   </div>
 
-  <div class="banner">Investment contributions aren't loaded yet (source is a screenshot, not yet imported) —
-    a cash-flow-vs-investing view isn't shown until that's in data/raw/.</div>
+  {investing_html}
 
   <footer class="page-footer">Built from data/budget.db · not committed, not shared ·
     budget edits are saved in this browser only (<button class="reset-btn" id="reset-btn" style="margin-left:6px">reset to config defaults</button>)</footer>"""
@@ -952,6 +1195,179 @@ renderIncome(currentMonthIdx);
     return render_shell("Income", "income.html", body, d["client_data"], init_js)
 
 
+
+def page_investments(d):
+    """SPEC §7.4, answered (2026-10-14): contributions are real dated rows
+    with kind=investment, so this page derives everything from the ledger
+    like every other view — no stored monthly totals, no screenshot numbers
+    transcribed into config."""
+    keys = list(INVESTMENT_LABELS)
+    months_lbl = [month_label(m["month"]) for m in d["monthly_series"]]
+
+    if not d["has_investments"]:
+        accounts = ", ".join(INVESTMENT_LABELS[k].lower() for k in keys)
+        body = f"""
+  <div class="page-header">
+    <h1>Investments</h1>
+    <div class="subtitle">How much goes into savings and investments each month</div>
+  </div>
+
+  <div class="card">
+    <h2>No contributions in the ledger yet</h2>
+    <div class="card-sub">
+      This page charts <code>kind=investment</code> rows — {esc(accounts)} — straight from the
+      transaction ledger, the same way every other page works. Nothing is charted until there are
+      real rows to chart: a contribution needs a date and an amount, so it can be paced against
+      the month's net cash flow (SPEC §5).
+    </div>
+    <div class="card-sub" style="margin-top:10px;">
+      To add them, tell Claude the contributions in chat (or hand it a brokerage screenshot) and
+      approve the staged rows in the <a href="import.html">Import</a> tab.
+    </div>
+  </div>
+
+  <footer class="page-footer">Built from data/budget.db · not committed, not shared</footer>"""
+        return render_shell("Investments", "investments.html", body, d["client_data"], "")
+
+    inv_vals = [m["investment"] for m in d["monthly_series"]]
+    net_vals = [m["income"] - m["expense"] for m in d["monthly_series"]]
+    values_by_month = [d["client_data"]["byMonth"][m]["investmentByCat"] for m in d["months"]]
+    total = d["total_investment_all_time"]
+    income_total = d["total_income_all_time"]
+    share = (total / income_total) if income_total else None
+    median = d["recent_investment_median"]
+    funded = [r for r in d["investment_months"] if r["contributed"] > 0]
+
+    drawdowns = [r for r in d["investment_months"] if r["drawdown"]]
+    if drawdowns:
+        items = "; ".join(
+            f"{esc(month_label(r['month']))} ({money(r['contributed'])} in, {money(r['net'])} net)"
+            for r in drawdowns)
+        drawdown_html = f"""
+    <div class="banner banner-warn" style="margin-top:12px;">
+      <strong>{len(drawdowns)} month{'' if len(drawdowns) == 1 else 's'} funded from savings, not income</strong>
+      <div style="margin-top:4px;">{items} — contributing more than the month netted draws the
+      cash balance down. That isn't wrong, but it isn't saving out of income either, and the
+      source sheets couldn't show it at all (SPEC §5).</div>
+    </div>"""
+    else:
+        drawdown_html = """
+    <div class="card-sub" style="margin-top:12px;">Every funded month contributed less than it
+    netted — all of it came out of that month's income.</div>"""
+
+    body = f"""
+  <div class="page-header">
+    <h1>Investments</h1>
+    <div class="subtitle">{money(total)} contributed over {len(funded)} funded month{'' if len(funded) == 1 else 's'} ·
+      {esc(", ".join(INVESTMENT_LABELS[k].lower() for k in keys))}</div>
+  </div>
+
+  <div class="month-toggle">
+    <label for="month-select">Month</label>
+    <select id="month-select"></select>
+  </div>
+
+  <div class="tiles">
+    {render_stat_tile("inv-month", "Contributed", "var(--series-1)", with_delta=True,
+                      sparkline_values=inv_vals, spark_color="var(--series-1)")}
+    {render_stat_tile_static("Typical funded month", money(median), "var(--series-1)")}
+    {render_stat_tile_static("Contributed all time", money(total))}
+    {render_stat_tile_static("Share of income", pct(share))}
+  </div>
+  <div class="card-sub" style="margin-top:-8px;">“Typical” is the median of the last
+    {min(3, len(funded))} funded month{'' if min(3, len(funded)) == 1 else 's'}, not the mean —
+    one $10k month would otherwise describe every month (SPEC §5).</div>
+
+  <div class="card">
+    <h2>Monthly contributions by account</h2>
+    <div class="card-sub">Hover a month for the split; click it to move the month toggle there.</div>
+    {render_legend([(INVESTMENT_LABELS[k], INVESTMENT_COLORS[k]) for k in keys])}
+    {render_stacked_bar_svg("inv-stack", months_lbl, keys, values_by_month, INVESTMENT_COLORS)}
+  </div>
+
+  <div class="card">
+    <h2>Funded out of income, or out of savings?</h2>
+    <div class="card-sub">Contributions against net cash flow (income − expenses) for the same month.
+      Where the solid line is above the dashed one, the month invested more than it earned.</div>
+    {render_legend([("Contributed", "var(--series-1)"), ("Net cash flow", "var(--text-secondary)")], dashed_last=True)}
+    {render_line_svg("inv-vs-net", months_lbl,
+                     [dict(name="Contributed", color="var(--series-1)", values=inv_vals),
+                      dict(name="Net cash flow", color="var(--text-secondary)", values=net_vals, dash=True)],
+                     lambda v: f"{v/1000:.1f}k", money)}
+    {drawdown_html}
+  </div>
+
+  <div class="card">
+    <h2>Mix — all time</h2>
+    <div class="card-sub">The actual split. The source Budget sheet's 70/20/10
+      brokerage/emergency/crypto is descriptive, not an allocation target, so there's no target
+      line here to miss.</div>
+    {render_legend([(INVESTMENT_LABELS[k], INVESTMENT_COLORS[k]) for k in keys])}
+    {render_mix_bar(d["all_time_investment_ranked"], INVESTMENT_COLORS)}
+  </div>
+
+  <div class="card">
+    <h2 id="h-inv-bycat">By account</h2>
+    <div id="inv-month-bars"></div>
+  </div>
+
+  <div class="card">
+    <h2>Contributions</h2>
+    <input type="search" id="txn-search" class="txn-search" placeholder="Search all months by description or amount…">
+    <div class="search-note" id="search-note"></div>
+    <div id="month-txns"></div>
+  </div>
+
+  <footer class="page-footer">Built from data/budget.db · not committed, not shared</footer>"""
+
+    init_js = """
+const INV_CATS = window.DATA.investmentCategories;
+function labelFor(cat) { return (INV_CATS[cat] || {}).label || cat; }
+function colorFor(cat) { return (INV_CATS[cat] || {}).color || 'var(--series-1)'; }
+let currentMonthIdx = window.DATA.months.length - 1;
+
+function renderTxnSection() {
+  const DATA = window.DATA;
+  const query = document.getElementById('txn-search').value;
+  const searchResults = searchTransactions(DATA, 'investmentTxns', query);
+  const noteEl = document.getElementById('search-note');
+  if (searchResults) {
+    noteEl.textContent = searchResults.length + (searchResults.length === 1 ? ' match' : ' matches') + ' across all months';
+    renderTxnTable(document.getElementById('month-txns'), searchResults, labelFor,
+      { showMonth: true, monthLabels: DATA.monthLabels, emptyText: 'No matches.' });
+  } else {
+    noteEl.textContent = '';
+    const m = DATA.byMonth[DATA.months[currentMonthIdx]];
+    renderTxnTable(document.getElementById('month-txns'), m.investmentTxns, labelFor,
+      { emptyText: 'No contributions this month.' });
+  }
+}
+document.getElementById('txn-search').addEventListener('input', renderTxnSection);
+
+function renderInvestments(monthIdx) {
+  currentMonthIdx = monthIdx;
+  const DATA = window.DATA;
+  const month = DATA.months[monthIdx];
+  const m = DATA.byMonth[month];
+  const prev = monthIdx > 0 ? DATA.byMonth[DATA.months[monthIdx - 1]] : null;
+
+  document.getElementById('inv-month-value').textContent = fmtMoney(m.investment);
+  document.getElementById('inv-month-sub').textContent = m.income
+    ? fmtPct(m.investment / m.income) + ' of ' + DATA.monthLabels[month] + ' income'
+    : 'no income recorded this month';
+  renderDelta('inv-month-delta', m.investment, prev ? prev.investment : undefined, { higherIsBetter: true });
+
+  document.getElementById('h-inv-bycat').textContent = 'By account — ' + DATA.monthLabels[month];
+  const ranked = Object.entries(m.investmentByCat).sort((a, b) => b[1] - a[1]).map(([c, v]) => [c, labelFor(c), v]);
+  renderBarList(document.getElementById('inv-month-bars'), ranked, null, fmtMoney, { colorFor });
+  renderTxnSection();
+}
+populateMonthSelect(document.getElementById('month-select'), window.DATA, renderInvestments);
+renderInvestments(currentMonthIdx);
+"""
+    return render_shell("Investments", "investments.html", body, d["client_data"], init_js)
+
+
 # ----------------------------------------------------------- page: budget
 
 def page_budget(d):
@@ -1100,8 +1516,12 @@ def page_import(d):
 const CATEGORY_LABELS = window.DATA.categories;
 const INCOME_LABELS = window.DATA.incomeCategories;
 
+const INVESTMENT_LABELS = window.DATA.investmentCategories;
+
 function categoryOptionsFor(kind, selected) {
-  const source = kind === 'expense' ? CATEGORY_LABELS : INCOME_LABELS;
+  const source = kind === 'expense' ? CATEGORY_LABELS
+               : kind === 'investment' ? INVESTMENT_LABELS
+               : INCOME_LABELS;
   return Object.entries(source).map(([slug, info]) =>
     `<option value="${slug}" ${slug === selected ? 'selected' : ''}>${info.label}</option>`).join('');
 }
@@ -1133,6 +1553,7 @@ async function loadPending() {
             <option value="expense" ${r.kind==='expense'?'selected':''}>Expense</option>
             <option value="income" ${r.kind==='income'?'selected':''}>Income</option>
             <option value="transfer" ${r.kind==='transfer'?'selected':''}>Transfer</option>
+            <option value="investment" ${r.kind==='investment'?'selected':''}>Investment</option>
           </select>
         </td>
         <td><select class="f-category">${categoryOptionsFor(r.kind, r.category)}</select></td>
@@ -1194,6 +1615,7 @@ def main():
         "index.html": page_dashboard(d, warnings),
         "expenses.html": page_expenses(d),
         "income.html": page_income(d),
+        "investments.html": page_investments(d),
         "budget.html": page_budget(d),
         "import.html": page_import(d),
     }

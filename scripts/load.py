@@ -103,6 +103,7 @@ def canonical_categories(categories_cfg):
         cats.update(group.keys())
     cats.update(categories_cfg["income"].keys())
     cats.update(categories_cfg["transfer"].keys())
+    cats.update(categories_cfg.get("investment", {}).keys())
     return cats
 
 

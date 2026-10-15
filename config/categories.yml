@@ -67,6 +67,20 @@ transfer:
   stock_sale: {}
   deposit_return: {}
 
+# Contribution accounts for kind=investment (SPEC §7.4, answered 2026-10-14:
+# real dated rows, not monthly lump sums — entered through the Import tab,
+# there are no investment rows in the source spreadsheets to map). The
+# Budget sheet's 70/20/10 brokerage/emergency/crypto split is *descriptive*
+# (user decision 2026-10-14), not an allocation target, so the dashboard
+# charts the actual mix and draws no target line. 401k/Roth payroll
+# contributions are deliberately out of scope: they never appear as cash
+# transactions, so mixing them in would make the cash-flow-vs-investing
+# comparison dishonest.
+investment:
+  brokerage: {}
+  emergency_fund: {}
+  crypto: {}
+
 # --- raw label -> canonical category -------------------------------------
 
 # Expenses tab `Category` column, verbatim -> canonical category.

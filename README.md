@@ -22,7 +22,8 @@ everything derives from one place instead of being hand-maintained in five.
   targets per category. Budgets are versioned by time, so correcting a target
   going forward doesn't rewrite past history.
 - **Dashboard** — `scripts/build_dashboard.py` generates the static site in
-  `site/`, which shows income, expenses, and budget-vs-actual by category.
+  `site/`, which shows income, expenses, investment contributions, and
+  budget-vs-actual by category.
 
 Nothing is ever stored as a precomputed subtotal — everything on the dashboard
 is derived fresh from the transaction-level data.

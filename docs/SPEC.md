@@ -204,9 +204,10 @@ comment — don't bury it in a divisor.
    Entertainment; drops Flights, Gym, Travel. Proposal, post-move plan, or dead?
 3. **The unknown tabs** — do `Food`, `Travel Diaries`, `2.2-2.8`, `1.26-2.1` contain
    transactions not in the main ledger, or are they notes? If transactions, they're in scope.
-4. **Investment ledger.** Brokerage contributions ($10,600 July, $5,000 June) exist only in
+4. ~~**Investment ledger.** Brokerage contributions ($10,600 July, $5,000 June) exist only in
    the tracker cards. Need dates and amounts as real rows, or there's no history to chart.
-   Also: is the 70/20/10 brokerage/emergency/crypto split a target or a description?
+   Also: is the 70/20/10 brokerage/emergency/crypto split a target or a description?~~
+   Resolved (§11): real dated rows, `kind=investment`, three accounts, 70/20/10 descriptive.
 5. **File inventory** — the tracker cards and budget sheet look like a separate workbook
    from Expenses/Income/Summary. Confirm paths.
 6. ~~**Gym** — $280/mo budgeted, actuals swing $298 → $13. Membership plus classes, or lumpy?~~
@@ -295,6 +296,22 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   ("a trip is one decision, not a monthly overrun") was already trying to prevent.
 - **`fixed` cadence checks amount, not just presence.** A payment under 95% of target now
   reads "partial: $X of $Y" (`warning`), not indistinguishable from a full on-target payment.
+- **Investment contributions are real dated rows** (resolves §7.4). `kind=investment`,
+  three accounts in `config/categories.yml` — `brokerage`, `emergency_fund`, `crypto` —
+  entered through the Import tab, not transcribed into config as monthly lump sums (the
+  earlier fallback in this log). Monthly totals are derived like every other figure on the
+  site. The tracker cards in `data/raw/2026 Budget.xlsx` turned out to hold no investment
+  numbers at all (all 12 month cards export as zeros), so there was nothing to import even
+  if the hard rule allowed it. **70/20/10 is descriptive, not a target** — the Investments
+  tab charts the actual mix and draws no target line. **401k/Roth payroll contributions are
+  out of scope**: they never appear as cash transactions, so including them would corrupt
+  the contributions-vs-net-cash-flow comparison that §5 asks for.
+- **An unhandled `kind` now fails the dashboard build.** `compute()` silently ignored any
+  kind without a branch, which would have dropped every investment row from every view —
+  SPEC §6.1's failure mode one layer downstream from the loader.
+- **The current month can't be a rent coverage gap** (§6.3). Rent is paid at the end of the
+  month, so the check fired every month until payday and surfaced as a dashboard banner.
+  Months that have ended still warn.
 - **Loader warnings surface on the Dashboard**, not just the terminal. `scripts/load.py`
   writes `data/load_warnings.json` every run; `build_dashboard.py` reads it and renders a
   banner when non-empty — a duplicate transaction or a month missing rent no longer sits
