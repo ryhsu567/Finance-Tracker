@@ -272,9 +272,10 @@ def apply_corrections(transactions, corrections):
     return result, warnings
 
 
-def run_integrity_checks(transactions):
+def run_integrity_checks(transactions, today=None):
     """SPEC §6.2/§6.3 — warn, don't fail."""
     warnings = []
+    today = today or date.today()
 
     # 6.2 duplicate detection: same date + amount + description
     seen = Counter((t["date"], t["amount"], t["description"]) for t in transactions)
@@ -290,7 +291,15 @@ def run_integrity_checks(transactions):
         all_months.add(month)
         if t["category"] == "rent":
             months_with_rent.add(month)
+    # ...except the current month, which hasn't finished yet. Rent is paid at
+    # the end of the month (every charge in the ledger so far lands on the
+    # 25th-31st), so an in-progress month with no rent row is an incomplete
+    # month, not missing data. Same principle as pacing off the calendar
+    # rather than the newest row: only months that have ended can have a gap.
+    current_month = today.strftime("%Y-%m")
     for month in sorted(all_months - months_with_rent):
+        if month == current_month:
+            continue
         warnings.append(f"no `rent` transaction in {month} — likely missing data")
 
     return warnings
