@@ -219,7 +219,7 @@ function renderMeterRow(rootEl, result) {
   const badge = rootEl.querySelector('.m-badge');
   if (badge) {
     badge.textContent = result.target !== null ? STATUS_TEXT[result.status] : '';
-    badge.className = 'status-badge ' + result.status;
+    badge.className = 'status-badge m-badge ' + result.status;
     badge.style.display = result.target !== null ? '' : 'none';
   }
   const pctFill = Math.min(100, (result.ratio || 0) * 100);
@@ -235,7 +235,7 @@ function renderMeterRow(rootEl, result) {
 function renderPoolRow(rootEl, result) {
   const color = STATUS_HEX[result.status];
   const badge = rootEl.querySelector('.m-badge');
-  if (badge) { badge.textContent = STATUS_TEXT[result.status]; badge.className = 'status-badge ' + result.status; }
+  if (badge) { badge.textContent = STATUS_TEXT[result.status]; badge.className = 'status-badge m-badge ' + result.status; }
   const pctFill = Math.min(100, (result.ratio || 0) * 100);
   rootEl.querySelector('.m-fill').style.width = pctFill + '%';
   rootEl.querySelector('.m-fill').style.background = color;
