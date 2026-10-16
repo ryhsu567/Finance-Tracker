@@ -24,7 +24,6 @@ Open site/index.html directly in a browser.
 import json
 import math
 import sqlite3
-import statistics
 from collections import defaultdict
 from datetime import date
 from pathlib import Path
@@ -68,6 +67,15 @@ NAV = [("index.html", "Dashboard"), ("expenses.html", "Expenses"),
 
 # ---------------------------------------------------------------- data ----
 
+def load_accounts():
+    """config/accounts.yml — hand-entered balance snapshots. Optional: a
+    missing file just means no balances are recorded, not a broken build."""
+    path = ROOT / "config" / "accounts.yml"
+    if not path.exists():
+        return {}
+    return (yaml.safe_load(path.read_text()) or {}).get("accounts") or {}
+
+
 def load_data():
     categories_cfg = yaml.safe_load((ROOT / "config" / "categories.yml").read_text())
     budgets_cfg = yaml.safe_load((ROOT / "config" / "budgets.yml").read_text())
@@ -76,7 +84,7 @@ def load_data():
     conn.row_factory = sqlite3.Row
     txns = [dict(r) for r in conn.execute("SELECT * FROM transactions ORDER BY date")]
     conn.close()
-    return categories_cfg, targets, txns
+    return categories_cfg, targets, txns, load_accounts()
 
 
 def load_warnings():
@@ -138,7 +146,7 @@ def esc(s):
 
 # ------------------------------------------------------------- metrics ----
 
-def compute(categories_cfg, targets, txns):
+def compute(categories_cfg, targets, txns, accounts_cfg=None):
     expense_cats = categories_cfg["expense"]
     cadence_of, group_of = {}, {}
     baseline_order, discretionary_order = [], []
@@ -253,11 +261,26 @@ def compute(categories_cfg, targets, txns):
                        and by_month[m]["investment"] > by_month[m]["income"] - by_month[m]["expense"]))
         for m in months
     ]
+    # Per account: what's been contributed, plus the optional market-value
+    # snapshot from config. Nothing is withdrawn from these accounts, so the
+    # contributed total is the account total; the balance is the one figure
+    # the ledger can't produce (market value isn't a transaction), so it's
+    # carried with its as_of date and never inferred from the contributions.
+    accounts_cfg = accounts_cfg or {}
+    account_rollup = []
+    for cat in INVESTMENT_LABELS:
+        cfg = accounts_cfg.get(cat) or {}
+        contributed = all_time_investment_cat.get(cat, 0.0)
+        balance = cfg.get("balance")
+        if contributed == 0 and balance in (None, ""):
+            continue      # an account with neither cash in nor a balance isn't in use
+        account_rollup.append(dict(
+            key=cat, label=label_for(cat), contributed=contributed,
+            balance=(float(balance) if balance not in (None, "") else None),
+            as_of=cfg.get("as_of"),
+        ))
+
     funded_months = [r for r in investment_months if r["contributed"] > 0]
-    # Median, not mean (SPEC §5): one $10k month would otherwise describe
-    # every month. Trailing 3 of the months that actually had a contribution.
-    recent_median = (statistics.median([r["contributed"] for r in funded_months[-3:]])
-                     if funded_months else None)
 
     # Lumpy-cadence categories are excluded from the paced pool (SPEC §5:
     # "a trip is one decision, not a monthly overrun") - matches app.js's
@@ -310,8 +333,8 @@ def compute(categories_cfg, targets, txns):
         all_time_investment_ranked=sorted(all_time_investment_cat.items(), key=lambda kv: -kv[1]),
         total_investment_all_time=sum(all_time_investment_cat.values()),
         investment_months=investment_months,
-        recent_investment_median=recent_median,
         has_investments=bool(all_time_investment_cat),
+        account_rollup=account_rollup,
         monthly_pool_history=monthly_pool_history,
         live_pace=live_pace, day_of_month=day_of_month, n_months=n_months, latest_date=latest_date,
         total_income_all_time=sum(all_time_income_cat.values()),
@@ -727,12 +750,13 @@ def render_stat_tile(tile_id, label, accent=None, with_delta=False, sparkline_va
             f'<div class="tile-sub" id="{tile_id}-sub"></div>{delta_html}</div>')
 
 
-def render_stat_tile_static(label, value, accent=None):
+def render_stat_tile_static(label, value, accent=None, sub=None):
     """A stat tile whose value is fixed at build time (e.g. YTD totals) —
     not toggle-dependent, so no JS-filled id like render_stat_tile's."""
     style = f' style="--tile-accent:{accent}"' if accent else ""
+    sub_html = f'<div class="tile-sub">{esc(sub)}</div>' if sub else ""
     return (f'<div class="tile"{style}><div class="tile-label">{esc(label)}</div>'
-            f'<div class="tile-value">{esc(value)}</div></div>')
+            f'<div class="tile-value">{esc(value)}</div>{sub_html}</div>')
 
 
 def render_meter_skeleton(cat, label, cadence, editable=True):
@@ -1241,10 +1265,23 @@ def page_investments(d):
     net_vals = [m["income"] - m["expense"] for m in d["monthly_series"]]
     values_by_month = [d["client_data"]["byMonth"][m]["investmentByCat"] for m in d["months"]]
     total = d["total_investment_all_time"]
-    income_total = d["total_income_all_time"]
-    share = (total / income_total) if income_total else None
-    median = d["recent_investment_median"]
     funded = [r for r in d["investment_months"] if r["contributed"] > 0]
+
+    # One tile per account. The total is derived from the contributions, so it
+    # needs no maintenance and can't go stale. A recorded market value in
+    # config/accounts.yml takes the headline instead, with its as_of date and
+    # the contributed figure underneath — only then are the two different.
+    account_tiles = []
+    for a in d["account_rollup"]:
+        if a["balance"] is not None:
+            as_of = a["as_of"]
+            dated = ("as of " + (as_of.strftime("%b %-d, %Y") if hasattr(as_of, "strftime") else str(as_of))
+                     if as_of else "market value")
+            value, sub = money(a["balance"]), f"{dated} · {money(a['contributed'])} contributed"
+        else:
+            value, sub = money(a["contributed"]), "contributed to date"
+        account_tiles.append(render_stat_tile_static(
+            a["label"], value, INVESTMENT_COLORS.get(a["key"]), sub=sub))
 
     drawdowns = [r for r in d["investment_months"] if r["drawdown"]]
     if drawdowns:
@@ -1278,13 +1315,13 @@ def page_investments(d):
   <div class="tiles">
     {render_stat_tile("inv-month", "Contributed", "var(--series-1)", with_delta=True,
                       sparkline_values=inv_vals, spark_color="var(--series-1)")}
-    {render_stat_tile_static("Typical funded month", money(median), "var(--series-1)")}
+    {"".join(account_tiles)}
     {render_stat_tile_static("Contributed all time", money(total))}
-    {render_stat_tile_static("Share of income", pct(share))}
   </div>
-  <div class="card-sub" style="margin-top:-8px;">“Typical” is the median of the last
-    {min(3, len(funded))} funded month{'' if min(3, len(funded)) == 1 else 's'}, not the mean —
-    one $10k month would otherwise describe every month (SPEC §5).</div>
+  <div class="card-sub" style="margin-top:-8px;">Account totals are contributions to date,
+    derived from the ledger. The ledger can't see market value, so to show that instead, put a
+    <code>balance</code> and <code>as_of</code> in <code>config/accounts.yml</code> and it takes
+    the headline with the contributed figure beneath it.</div>
 
   <div class="card">
     <h2>Monthly contributions by account</h2>
@@ -1612,10 +1649,10 @@ loadPending();
 def main():
     if not DB_PATH.exists():
         raise SystemExit("data/budget.db not found — run scripts/load.py first.")
-    categories_cfg, targets, txns = load_data()
+    categories_cfg, targets, txns, accounts_cfg = load_data()
     if not txns:
         raise SystemExit("No transactions in database.")
-    d = compute(categories_cfg, targets, txns)
+    d = compute(categories_cfg, targets, txns, accounts_cfg)
     warnings = load_warnings()
 
     SITE_DIR.mkdir(parents=True, exist_ok=True)

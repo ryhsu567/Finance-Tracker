@@ -1,0 +1,31 @@
+# Investment account values.
+#
+# Each account's total is derived from the ledger: the contributions recorded
+# against it (kind=investment). Nothing is ever withdrawn from these accounts,
+# so the contributed total *is* the account total — there's no withdrawal
+# netting here, and the ledger's "Stock Money" transfer rows come from
+# elsewhere and have nothing to do with these accounts.
+#
+# `balance` is OPTIONAL and normally null. Left null, the Investments tab shows
+# the derived contributed total. Set it only when you want market value shown
+# instead — gains and losses the ledger can't see — and it then leads the tile
+# with its `as_of` date beside it, contributed figure underneath. A balance is
+# always displayed with its date: an undated one silently goes stale.
+
+accounts:
+  brokerage:
+    label: Brokerage
+    balance: null
+    as_of: null
+  roth_ira:
+    label: Roth IRA
+    balance: null
+    as_of: null
+  emergency_fund:
+    label: Emergency fund
+    balance: null
+    as_of: null
+  crypto:
+    label: Crypto
+    balance: null
+    as_of: null

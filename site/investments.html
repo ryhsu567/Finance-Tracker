@@ -26,13 +26,13 @@
 
   <div class="tiles">
     <div class="tile" style="--tile-accent:var(--series-1)"><div class="tile-head-row"><div class="tile-label">Contributed</div><div class="tile-spark"><svg viewBox="0 0 96 28" class="sparkline" width="96" height="28"><path d="M 3.0 14.6 L 13.0 20.4 L 23.0 25.0 L 33.0 25.0 L 43.0 17.7 L 53.0 14.6 L 63.0 3.0 L 73.0 25.0 L 83.0 24.0 L 93.0 20.8" fill="none" stroke="var(--text-muted)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.55"/><circle cx="93.0" cy="20.8" r="2.5" fill="var(--series-1)"/></svg></div></div><div class="tile-value" id="inv-month-value">—</div><div class="tile-sub" id="inv-month-sub"></div><div class="tile-delta" id="inv-month-delta"></div></div>
-    <div class="tile" style="--tile-accent:var(--series-1)"><div class="tile-label">Typical funded month</div><div class="tile-value">$2,000</div></div>
+    <div class="tile" style="--tile-accent:var(--series-1)"><div class="tile-label">Brokerage</div><div class="tile-value">$21,300</div><div class="tile-sub">contributed to date</div></div><div class="tile" style="--tile-accent:var(--series-4)"><div class="tile-label">Roth IRA</div><div class="tile-value">$7,500</div><div class="tile-sub">contributed to date</div></div>
     <div class="tile"><div class="tile-label">Contributed all time</div><div class="tile-value">$28,800</div></div>
-    <div class="tile"><div class="tile-label">Share of income</div><div class="tile-value">55%</div></div>
   </div>
-  <div class="card-sub" style="margin-top:-8px;">“Typical” is the median of the last
-    3 funded months, not the mean —
-    one $10k month would otherwise describe every month (SPEC §5).</div>
+  <div class="card-sub" style="margin-top:-8px;">Account totals are contributions to date,
+    derived from the ledger. The ledger can't see market value, so to show that instead, put a
+    <code>balance</code> and <code>as_of</code> in <code>config/accounts.yml</code> and it takes
+    the headline with the contributed figure beneath it.</div>
 
   <div class="card">
     <h2>Monthly contributions by account</h2>
