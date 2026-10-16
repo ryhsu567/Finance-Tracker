@@ -73,11 +73,19 @@ transfer:
 # Budget sheet's 70/20/10 brokerage/emergency/crypto split is *descriptive*
 # (user decision 2026-10-14), not an allocation target, so the dashboard
 # charts the actual mix and draws no target line. 401k/Roth payroll
-# contributions are deliberately out of scope: they never appear as cash
-# transactions, so mixing them in would make the cash-flow-vs-investing
-# comparison dishonest.
+# *payroll* contributions are deliberately out of scope: they never appear as
+# cash transactions, so mixing them in would make the cash-flow-vs-investing
+# comparison dishonest. A Roth IRA funded by a transfer out of checking is the
+# opposite case — real cash leaves the bank on a real date — so it belongs
+# here (added 2026-10-15).
+#
+# Order matters: it is the stacking and legend order on the Investments tab,
+# and the palette is validated on *adjacent* pairs. roth_ira (yellow) sits
+# second, next to brokerage (blue), because yellow beside crypto (orange)
+# fails CVD separation outright — ΔE 4.8 on the dark surface.
 investment:
   brokerage: {}
+  roth_ira: {}
   emergency_fund: {}
   crypto: {}
 

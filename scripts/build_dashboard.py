@@ -47,13 +47,16 @@ INCOME_LABELS = {
     "tax_refund": "Tax refund", "reimbursement": "Reimbursement", "resale": "Resale",
 }
 TRANSFER_LABELS = {"stock_sale": "Stock sale", "deposit_return": "Deposit return"}
-INVESTMENT_LABELS = {"brokerage": "Brokerage", "emergency_fund": "Emergency fund",
-                     "crypto": "Crypto"}
+INVESTMENT_LABELS = {"brokerage": "Brokerage", "roth_ira": "Roth IRA",
+                     "emergency_fund": "Emergency fund", "crypto": "Crypto"}
 # Fixed hue order, not cycled, and an account keeps its hue on every chart
 # it appears in — the three series tokens the rest of the site already
 # ships, no new colors invented for this page.
-INVESTMENT_COLORS = {"brokerage": "var(--series-1)", "emergency_fund": "var(--series-3)",
-                     "crypto": "var(--series-2)"}
+# Slots 1/4/3/2 of the reference palette, in this order: the dict order is the
+# stack order, and the validator checks adjacent pairs. Yellow next to orange
+# fails outright (CVD ΔE 4.8 dark), so Roth IRA sits between blue and aqua.
+INVESTMENT_COLORS = {"brokerage": "var(--series-1)", "roth_ira": "var(--series-4)",
+                     "emergency_fund": "var(--series-3)", "crypto": "var(--series-2)"}
 
 STATUS_HEX = {"good": "#0ca30c", "warning": "#fab219", "critical": "#d03b3b", "neutral": "#898781"}
 STATUS_TEXT = {"good": "on pace", "warning": "watch", "critical": "over pace", "neutral": "—"}
@@ -1201,7 +1204,12 @@ def page_investments(d):
     with kind=investment, so this page derives everything from the ledger
     like every other view — no stored monthly totals, no screenshot numbers
     transcribed into config."""
-    keys = list(INVESTMENT_LABELS)
+    # Only accounts that actually have contributions get a hue, a stack slot
+    # and a legend key — a legend describes the chart, not the taxonomy, and
+    # an account with no rows would read as a real $0 slice. Adding the first
+    # crypto row brings crypto back on the next build, in taxonomy order.
+    funded_accounts = {cat for cat, _ in d["all_time_investment_ranked"]}
+    keys = [k for k in INVESTMENT_LABELS if k in funded_accounts] or list(INVESTMENT_LABELS)
     months_lbl = [month_label(m["month"]) for m in d["monthly_series"]]
 
     if not d["has_investments"]:
