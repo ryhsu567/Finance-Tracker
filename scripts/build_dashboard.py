@@ -1424,6 +1424,12 @@ def page_budget(d):
         render_meter_skeleton(c, CATEGORY_LABELS[c], d["cadence_of"][c]) for c in d["pooled_discretionary"])
     lumpy_meters = "".join(
         render_meter_skeleton(c, CATEGORY_LABELS[c], d["cadence_of"][c]) for c in d["lumpy_discretionary"])
+    # Only mention the lumpy card when there is one — every discretionary
+    # category is `variable` as of 2026-08-11, so it usually renders nothing.
+    pool_scope_note = ("Only variable-cadence categories are pooled here — lumpy ones are tracked separately below."
+                       if d["lumpy_discretionary"] else
+                       "Every discretionary category is variable-cadence right now, so all of them are pooled here.")
+
     lumpy_card = "" if not d["lumpy_discretionary"] else f"""
   <div class="card">
     <h2>Lumpy / one-off spending — tracked annually, not pooled</h2>
@@ -1464,7 +1470,7 @@ def page_budget(d):
   <div class="card">
     <h2>Discretionary — day to day, checked as one pool</h2>
     <div class="card-sub">Individual categories swing a lot month to month; the pooled total is the real constraint (SPEC §5).
-      Only variable-cadence categories are pooled here — lumpy ones are tracked separately below.</div>
+      {pool_scope_note}</div>
     {render_pool_skeleton("pool-discretionary", "Variable-cadence discretionary spend, pooled")}
     <div class="group-label">Individual categories — guides, edit targets here, pool above reflects them</div>
     {pooled_meters}

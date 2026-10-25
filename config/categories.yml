@@ -34,7 +34,13 @@ expense:
     # checked per-category before.
     groceries:      { budget_group: discretionary, cadence: variable }
   transport:
-    transportation: { budget_group: baseline,      cadence: variable }
+    # Decision (2026-10-23): moved from `baseline` to `discretionary` (user
+    # preference) - ride-share/transit/parking are day-to-day choices, so
+    # they belong in the pooled check, not a per-category baseline one.
+    # reconcile.py's BASELINE_CATS deliberately still lists transportation:
+    # it reproduces the *source sheet's* historical baseline to validate the
+    # migration arithmetic, and is not a statement about current grouping.
+    transportation: { budget_group: discretionary, cadence: variable }
   food_out:
     eating_out:     { budget_group: discretionary, cadence: variable }
     sweet_treat:    { budget_group: discretionary, cadence: variable }

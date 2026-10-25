@@ -195,9 +195,11 @@ function poolResult(DATA, monthIdx, group) {
 }
 
 // Baseline is checked per-category (SPEC §5), not pooled - a fixed rent
-// payment and a paced groceries budget don't share one meaningful "expected
+// payment and a paced utilities budget don't share one meaningful "expected
 // by day N" figure. This sums the raw dollars for reference but grounds its
 // verdict in each category's own cadence-appropriate status, not a blend.
+// Baseline is just rent + utilities now: groceries moved to the
+// discretionary pool on 2026-08-11, transportation on 2026-10-23.
 function baselineSummary(DATA, monthIdx) {
   const cats = DATA.order.baseline;
   let target = 0, actual = 0, onTrack = 0, withTarget = 0;

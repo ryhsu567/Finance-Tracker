@@ -53,8 +53,8 @@ You get both readings — trip totals and honest category trends — instead of 
 |---|---|---|---|
 | `housing` | `rent` | baseline | fixed |
 | `housing` | `utilities`, `insurance` | baseline | variable |
-| `food_in` | `groceries` | baseline | variable |
-| `transport` | `transportation` | baseline | variable |
+| `food_in` | `groceries` | discretionary | variable |
+| `transport` | `transportation` | discretionary | variable |
 | `transport` | `flights` | discretionary | lumpy |
 | `food_out` | `eating_out`, `sweet_treat` | discretionary | variable |
 | `social` | `going_out` | discretionary | variable |
@@ -294,6 +294,19 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   their own annualized YTD target instead — pooling them made one early-month lumpy
   purchase read as the whole pool over pace, which is what §5's original envelope design
   ("a trip is one decision, not a monthly overrun") was already trying to prevent.
+- **Budget groups and cadences were revised after the bullets above.** Superseding the
+  two previous entries: no discretionary category is `lumpy` any more — `gym`, `shopping`
+  and `travel` were all flipped to `variable` and pooled on 2026-08-11 (user preference: a
+  flat monthly pace, not an annualized YTD read), so the Budget page's "lumpy" section
+  hides itself. Baseline shrank twice, and is now just `rent` + `utilities`: `groceries`
+  moved to the discretionary pool on 2026-08-11 and `transportation` on 2026-10-23
+  (ride-share/transit/parking are day-to-day choices, so they belong in the pooled check).
+  The pooled target is therefore $1,450/mo, which no longer honours the $1,000 cap recorded
+  in `config/budgets.yml` — the targets there are unrevised and that is an open item.
+  `config/categories.yml` is the source of truth for both axes; `reconcile.py`'s
+  `BASELINE_CATS` deliberately keeps the *source sheet's* historical baseline (rent,
+  groceries, utilities, transportation) because it validates the migration arithmetic
+  against §5's worked example, and is not a statement about current grouping.
 - **`fixed` cadence checks amount, not just presence.** A payment under 95% of target now
   reads "partial: $X of $Y" (`warning`), not indistinguishable from a full on-target payment.
 - **Investment contributions are real dated rows** (resolves §7.4). `kind=investment`,
