@@ -309,6 +309,14 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   `BASELINE_CATS` deliberately keeps the *source sheet's* historical baseline (rent,
   groceries, utilities, transportation) because it validates the migration arithmetic
   against §5's worked example, and is not a statement about current grouping.
+- **Raw descriptions are matched ignoring case.** The description maps
+  (`raw_expense_description_labels`, `raw_income_description_labels`) are hand-typed in the
+  source sheet, so one payee shows up as `HEYTEA`, `HeyTea` and `Heytea`. Exact matching
+  meant a single spelling hit its override and the rest fell through to the `Category`
+  column — harmless for HEYTEA, whose raw label already said `Sweet Treat`, but only by
+  luck. Folded case closes that (user decision, 2026-10-25) and reclassifies no existing
+  row. Two keys differing only in case but disagreeing on the category raise a
+  `LoaderError` rather than letting dict order decide (§6.1).
 - **`fixed` cadence checks amount, not just presence.** A payment under 95% of target now
   reads "partial: $X of $Y" (`warning`), not indistinguishable from a full on-target payment.
 - **Investment contributions are real dated rows** (resolves §7.4). `kind=investment`,

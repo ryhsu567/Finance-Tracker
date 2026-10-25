@@ -40,7 +40,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from xlsx_reader import Workbook, excel_serial_to_date
-from load import (load_corrections, map_expense_category, map_income_category,
+from load import (casefold_lookup, load_corrections, map_expense_category, map_income_category,
                   transaction_id)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -289,12 +289,13 @@ def main():
     # "Badminton" is labelled "Gym" in the sheet but belongs to `entertainment`.
     # Both sides of that move need to show up as expected. Mirrors
     # map_expense_category(): the description wins over the Category column
-    # whatever it says, not only on "Other" rows.
+    # whatever it says, not only on "Other" rows, and is matched ignoring case.
     desc_overrides = categories_cfg.get("raw_expense_description_labels", {})
     for row in expense_rows:
-        if row.desc in desc_overrides:
+        real_canon = casefold_lookup(desc_overrides, row.desc,
+                                     what="raw_expense_description_labels")
+        if real_canon is not None:
             naive_canon = categories_cfg["raw_expense_labels"].get(row.raw_cat)
-            real_canon = desc_overrides[row.desc]
             if real_canon != naive_canon:
                 expected_delta[(row.month, naive_canon)] -= row.amount
                 expected_delta[(row.month, real_canon)] += row.amount

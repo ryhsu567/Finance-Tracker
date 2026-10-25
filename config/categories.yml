@@ -122,6 +122,11 @@ raw_expense_labels:
 # personal care, so only the description can tell them apart (same trick as
 # income's `Other` below) — and the column is sometimes just wrong, which is a
 # second reason to trust an unambiguous description over the label.
+#
+# Keys match the description IGNORING CASE (user decision, 2026-10-25): the
+# descriptions are hand-typed, so the same payee arrives as HEYTEA, HeyTea and
+# Heytea. Two keys differing only in case but disagreeing on the category are
+# an error the loader refuses to guess past.
 raw_expense_description_labels:
   "Bay to Breakers": entertainment
   Movies: entertainment
@@ -140,6 +145,7 @@ raw_income_category_labels:
   "Side Hustle?": side_hustle
 
 raw_income_description_labels:       # only checked when Category == "Other"
+                                     # matched ignoring case, as above
   Underdog: resale
   "FB Marketplace BS": resale
   "Eye Medical Reimbursement": reimbursement

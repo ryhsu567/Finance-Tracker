@@ -54,6 +54,31 @@ def transaction_id(source_file, source_sheet, source_row):
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
+def casefold_lookup(mapping, description, *, what):
+    """Look `description` up in a raw-label map, ignoring case (user decision,
+    2026-10-25). The sheet's descriptions are hand-typed, so the same payee
+    arrives as HEYTEA, HeyTea and Heytea; matching exactly meant only one
+    spelling hit its override and the rest fell through to the Category column.
+
+    Fails loudly on two keys that differ only in case but disagree on the
+    category — that is an ambiguous config, not something to resolve by
+    whichever key happened to be last (SPEC §6.1).
+    """
+    folded = {}
+    for key, value in mapping.items():
+        prior = folded.get(key.casefold())
+        if prior is not None and prior[1] != value:
+            raise LoaderError(
+                f"Ambiguous {what} in config/categories.yml: {prior[0]!r} -> {prior[1]} "
+                f"and {key!r} -> {value} differ only in case. Case-insensitive "
+                f"matching can't choose between them — make the two agree, or "
+                f"drop one."
+            )
+        folded[key.casefold()] = (key, value)
+    hit = folded.get(description.casefold())
+    return hit[1] if hit else None
+
+
 def map_expense_category(raw_category, description, categories_cfg, *, sheet, row, source_file):
     mapping = categories_cfg["raw_expense_labels"]
     desc_overrides = categories_cfg.get("raw_expense_description_labels", {})
@@ -61,8 +86,10 @@ def map_expense_category(raw_category, description, categories_cfg, *, sheet, ro
     # can't tell a fee/subscription apart from a Movies ticket — both filed
     # under "Other" — and it is sometimes simply wrong: "Badminton" was entered
     # under "Gym". Where the description is unambiguous, trust it over the label.
-    if description in desc_overrides:
-        return desc_overrides[description], "expense"
+    override = casefold_lookup(desc_overrides, description,
+                               what="raw_expense_description_labels")
+    if override is not None:
+        return override, "expense"
     category = mapping.get(raw_category)
     if category is None:
         raise LoaderError(
@@ -80,7 +107,9 @@ def map_income_category(raw_category, description, categories_cfg, *, sheet, row
 
     category = by_category.get(raw_category)
     if category is None:
-        category = by_description.get(description)
+        # Same case-insensitive match as the expense side above.
+        category = casefold_lookup(by_description, description,
+                                   what="raw_income_description_labels")
     if category is None:
         raise LoaderError(
             f"Unmapped Income row: category={raw_category!r} description={description!r} "
