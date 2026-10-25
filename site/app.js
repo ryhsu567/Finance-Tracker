@@ -378,6 +378,18 @@ function daysInMonth(monthStr) {
   const [y, m] = monthStr.split('-').map(Number);
   return new Date(y, m, 0).getDate();
 }
+// How much of `month` has actually elapsed, read from the browser clock rather
+// than from DATA.dayOfMonth. The build bakes that in at generation time, so a
+// tab refreshed two days later would otherwise freeze the pace line on the day
+// of the last build. Days with no transactions still count as elapsed and
+// contribute $0, which is what carries the actual line flat across them.
+// A month that isn't the live calendar month is fully elapsed.
+function elapsedDays(monthStr) {
+  const nDays = daysInMonth(monthStr);
+  const now = new Date();
+  const liveMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return monthStr === liveMonth ? Math.min(now.getDate(), nDays) : nDays;
+}
 function totalMonthlyTarget(DATA, categoryKeys) {
   const cats = categoryKeys || Object.keys(DATA.categories);
   let sum = 0;
@@ -449,8 +461,7 @@ function renderCumulativeChart(containerEl, DATA, monthIdx, categoryKeys) {
   const dayTotals = new Array(nDays + 1).fill(0);
   txns.forEach(t => { dayTotals[Number(t.date.split('-')[2])] += t.amount; });
 
-  const isCurrent = monthIdx === DATA.months.length - 1;
-  const lastDay = isCurrent ? DATA.dayOfMonth : nDays;
+  const lastDay = elapsedDays(month);
   const cumActual = [];
   let running = 0;
   for (let d = 1; d <= lastDay; d++) { running += dayTotals[d]; cumActual.push(running); }
