@@ -301,8 +301,10 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   hides itself. Baseline shrank twice, and is now just `rent` + `utilities`: `groceries`
   moved to the discretionary pool on 2026-08-11 and `transportation` on 2026-10-23
   (ride-share/transit/parking are day-to-day choices, so they belong in the pooled check).
-  The pooled target is therefore $1,450/mo, which no longer honours the $1,000 cap recorded
-  in `config/budgets.yml` — the targets there are unrevised and that is an open item.
+  The pooled target is therefore $1,450/mo, re-confirmed with the user on 2026-10-25 as the
+  real cap — it supersedes the $1,000/mo cap of 2026-08-11, which the two moves into the
+  pool had quietly broken. The per-category targets in `config/budgets.yml` were left
+  unchanged rather than cut back to fit the older figure.
   `config/categories.yml` is the source of truth for both axes; `reconcile.py`'s
   `BASELINE_CATS` deliberately keeps the *source sheet's* historical baseline (rent,
   groceries, utilities, transportation) because it validates the migration arithmetic
