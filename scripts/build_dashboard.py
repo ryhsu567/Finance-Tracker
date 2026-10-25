@@ -16,8 +16,10 @@ interactive one.
 
 Emits:
     site/index.html, expenses.html, income.html, investments.html,
-    budget.html, import.html
-    site/style.css, site/app.js  (rewritten every run, edit the source not these)
+    budget.html, import.html   (generated — edit this script, not these)
+
+site/style.css and site/app.js are hand-maintained source files, NOT emitted
+by this script; edit them directly.
 
 Open site/index.html directly in a browser.
 """
@@ -1606,7 +1608,7 @@ async function loadPending() {
         <td class="card-sub">${(r.source_note||'').replace(/</g,'&lt;')}</td>
         <td style="white-space:nowrap;">
           <button class="btn btn-approve">Approve</button>
-          <button class="btn btn-reject" style="background:transparent; border:1px solid var(--border);">Reject</button>
+          <button class="btn btn-reject">Reject</button>
         </td>
       </tr>`).join('')}</tbody></table>`;
 
