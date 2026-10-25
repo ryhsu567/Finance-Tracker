@@ -111,15 +111,18 @@ raw_expense_labels:
   Travel: travel
   "Move-in": shopping           # merged (SPEC §11) — one-off purchases either way
 
-# Only checked when Category == "Other" — the raw sheet files these under
-# the same label as annual fees/subscriptions/personal care, so only the
-# description can tell them apart (same trick as income's `Other` below).
+# These win over the `Category` column, whatever it says. The raw sheet files
+# recreational spend under the same "Other" label as annual fees/subscriptions/
+# personal care, so only the description can tell them apart (same trick as
+# income's `Other` below) — and the column is sometimes just wrong, which is a
+# second reason to trust an unambiguous description over the label.
 raw_expense_description_labels:
   "Bay to Breakers": entertainment
   Movies: entertainment
   "Tennis Balls": entertainment
   "Tennis Lights": entertainment
   "Running Gels": entertainment
+  Badminton: entertainment      # entered under "Gym" in the source sheet (user decision, 2026-10-16)
   HEYTEA: sweet_treat            # bubble tea/dessert, not a meal (user decision, 2026-09-09)
 
 # Income tab: the raw `Category` column only has 4 distinct values

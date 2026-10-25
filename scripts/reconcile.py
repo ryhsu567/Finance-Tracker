@@ -284,12 +284,15 @@ def main():
         if canon:
             expected_delta[(row.month, canon)] += row.amount
 
-    # Description-based reclassification within "Other" (SPEC §11) - e.g.
-    # "Bay to Breakers" naively maps to `other` but the loader sends it to
-    # `entertainment`. Both sides of that move need to show up as expected.
+    # Description-based reclassification (SPEC §11) - e.g. "Bay to Breakers"
+    # naively maps to `other` but the loader sends it to `entertainment`, and
+    # "Badminton" is labelled "Gym" in the sheet but belongs to `entertainment`.
+    # Both sides of that move need to show up as expected. Mirrors
+    # map_expense_category(): the description wins over the Category column
+    # whatever it says, not only on "Other" rows.
     desc_overrides = categories_cfg.get("raw_expense_description_labels", {})
     for row in expense_rows:
-        if row.raw_cat == "Other" and row.desc in desc_overrides:
+        if row.desc in desc_overrides:
             naive_canon = categories_cfg["raw_expense_labels"].get(row.raw_cat)
             real_canon = desc_overrides[row.desc]
             if real_canon != naive_canon:

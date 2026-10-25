@@ -57,10 +57,11 @@ def transaction_id(source_file, source_sheet, source_row):
 def map_expense_category(raw_category, description, categories_cfg, *, sheet, row, source_file):
     mapping = categories_cfg["raw_expense_labels"]
     desc_overrides = categories_cfg.get("raw_expense_description_labels", {})
-    # Only "Other" rows get the description-based split (SPEC §11) — the
-    # source sheet's Category column can't otherwise tell a fee/subscription
-    # apart from a Movies ticket, both filed under "Other".
-    if raw_category == "Other" and description in desc_overrides:
+    # A description override beats the Category column (SPEC §11). That column
+    # can't tell a fee/subscription apart from a Movies ticket — both filed
+    # under "Other" — and it is sometimes simply wrong: "Badminton" was entered
+    # under "Gym". Where the description is unambiguous, trust it over the label.
+    if description in desc_overrides:
         return desc_overrides[description], "expense"
     category = mapping.get(raw_category)
     if category is None:
