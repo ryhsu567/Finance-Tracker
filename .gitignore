@@ -1,5 +1,7 @@
 data/raw/
-data/*.db
+# repo-wide, not just data/: a script run from the wrong cwd drops a stray
+# budget.db at the root, and a database file must never be committed here.
+*.db
 data/imports/
 data/corrections.yml
 data/load_warnings.json
