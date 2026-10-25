@@ -1285,23 +1285,6 @@ def page_investments(d):
         account_tiles.append(render_stat_tile_static(
             a["label"], value, INVESTMENT_COLORS.get(a["key"]), sub=sub))
 
-    drawdowns = [r for r in d["investment_months"] if r["drawdown"]]
-    if drawdowns:
-        items = "; ".join(
-            f"{esc(month_label(r['month']))} ({money(r['contributed'])} in, {money(r['net'])} net)"
-            for r in drawdowns)
-        drawdown_html = f"""
-    <div class="banner banner-warn" style="margin-top:12px;">
-      <strong>{len(drawdowns)} month{'' if len(drawdowns) == 1 else 's'} funded from savings, not income</strong>
-      <div style="margin-top:4px;">{items} — contributing more than the month netted draws the
-      cash balance down. That isn't wrong, but it isn't saving out of income either, and the
-      source sheets couldn't show it at all (SPEC §5).</div>
-    </div>"""
-    else:
-        drawdown_html = """
-    <div class="card-sub" style="margin-top:12px;">Every funded month contributed less than it
-    netted — all of it came out of that month's income.</div>"""
-
     body = f"""
   <div class="page-header">
     <h1>Investments</h1>
@@ -1320,10 +1303,6 @@ def page_investments(d):
     {"".join(account_tiles)}
     {render_stat_tile_static("Contributed all time", money(total))}
   </div>
-  <div class="card-sub" style="margin-top:-8px;">Account totals are contributions to date,
-    derived from the ledger. The ledger can't see market value, so to show that instead, put a
-    <code>balance</code> and <code>as_of</code> in <code>config/accounts.yml</code> and it takes
-    the headline with the contributed figure beneath it.</div>
 
   <div class="card">
     <h2>Monthly contributions by account</h2>
@@ -1341,7 +1320,6 @@ def page_investments(d):
                      [dict(name="Contributed", color="var(--series-1)", values=inv_vals),
                       dict(name="Net cash flow", color="var(--text-secondary)", values=net_vals, dash=True)],
                      lambda v: f"{v/1000:.1f}k", money)}
-    {drawdown_html}
   </div>
 
   <div class="card">
