@@ -339,3 +339,19 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   writes `data/load_warnings.json` every run; `build_dashboard.py` reads it and renders a
   banner when non-empty — a duplicate transaction or a month missing rent no longer sits
   invisible unless someone happens to be reading `load.py`'s stdout.
+- **`travel` is `lumpy` again** (2026-11-10, reversing the 2026-08-11 flip for this one
+  category). Travel is saved up for across months and then spent in a lump, so pacing it
+  against a flat monthly target misreads it: a single $950 flight booking made November's
+  whole discretionary pool read as blown on the 10th, which is the exact failure §5's
+  envelope design named ("a trip is one decision, not a monthly overrun"). `travel` now
+  gets an annualized YTD meter and leaves the paced pool, which drops the pooled cap from
+  $1,450 to $1,300/mo — the pool is the sum of its members' targets, so it moves when
+  membership does. `gym` and `shopping` stay `variable`/pooled; the 2026-08-11 preference
+  still holds for them. **The $150/mo travel target stays as-is — asked and confirmed with
+  the user 2026-11-10**, with the consequence stated: actual travel is $3,973.75 over
+  Jan–Oct (~$397/mo), so travel's annualized meter sits at roughly 300% of target and will
+  stay red. That is the intended read, not an oversight; the cadence change was about the
+  *pool* misattributing one lump purchase, not about making the overrun disappear. Raising
+  the target was explicitly declined for now, and would in any case rewrite every past
+  month's read until time-versioned targets (§4) reach the read path — the schema has
+  `effective_from`, `build_dashboard.py`/`app.js` ignore it (see `config/budgets.yml`).

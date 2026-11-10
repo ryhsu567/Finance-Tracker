@@ -17,13 +17,15 @@
 # once more. Displayed on the Budget page ordered by target size, highest
 # first (build_dashboard.py).
 #
-# Discretionary pool: 400+350+150+150+100+100+100+50+50 = $1,450/mo, confirmed
-# with the user 2026-10-25. This supersedes the $1,000/mo cap of 2026-08-11:
-# two categories have since moved INTO the pool in categories.yml — groceries
-# ($400, on 2026-08-11) and transportation ($100, on 2026-10-23) — and the
-# decision was to take the higher pooled figure as the real cap rather than cut
-# the per-category targets back to fit the old one. No target value below was
-# changed when the cap was re-confirmed.
+# Discretionary pool: 400+350+150+100+100+100+50+50 = $1,300/mo. Was $1,450
+# (confirmed with the user 2026-10-25) until travel went back to `lumpy` on
+# 2026-11-10 and left the pool, taking its $150 with it — the pool is the sum
+# of the *pooled* categories' targets, so it moves when membership does. The
+# $1,450 figure itself superseded the $1,000/mo cap of 2026-08-11, after
+# groceries ($400, 2026-08-11) and transportation ($100, 2026-10-23) moved INTO
+# the pool and the decision was to take the higher pooled figure as the real cap
+# rather than cut the per-category targets back to fit the old one. No target
+# value below has ever been changed by one of these membership moves.
 
 scenario: current
 
@@ -59,5 +61,8 @@ targets:
     monthly_target: 100.00
     effective_from: 2026-01-01
   - category: travel
-    monthly_target: 150.00      # user-set 2026-08-11 (was 200), now variable/pooled not lumpy
+    monthly_target: 150.00      # user-set 2026-08-11 (was 200). Back to lumpy
+                                # 2026-11-10: read as 150 x months-elapsed YTD,
+                                # not a monthly pace. NOT yet re-set to a real
+                                # save-up-and-spend figure — see SPEC §11.
     effective_from: 2026-01-01
