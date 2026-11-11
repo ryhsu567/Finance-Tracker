@@ -146,6 +146,16 @@ def esc(s):
     return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
 
 
+def and_list(items):
+    """'travel' / 'travel and shopping' / 'travel, shopping and gym' - so a
+    caption that names a derived set reads as a sentence however many
+    categories happen to be in it."""
+    items = [esc(i) for i in items]
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
 # ------------------------------------------------------------- metrics ----
 
 def compute(categories_cfg, targets, txns, accounts_cfg=None):
@@ -248,7 +258,44 @@ def compute(categories_cfg, targets, txns, accounts_cfg=None):
         for cat, v in by_month[m]["investmentByCat"].items():
             all_time_investment_cat[cat] += v
 
+    # SPEC §5's `underlying_spend`, implemented at last. The spec defined it
+    # as "expenses excluding all tagged transactions — the trend line that
+    # actually means something", but tagging was descoped (§11), so the
+    # definition lost its basis and the metric was never built. Cadence
+    # carries the same meaning on an axis that still exists: a `lumpy`
+    # category has no monthly rhythm (saved up over months, then spent in
+    # one go), so excluding it leaves a line a trend can be read off. One
+    # $950 flight booking otherwise moves the total more than a whole
+    # month's groceries. Derived per month, never stored. The list is empty
+    # when no category is lumpy, and the chart falls back to one line.
+    lumpy_cats = sorted(c for c, cad in cadence_of.items() if cad == "lumpy")
+
+    def underlying_for(m):
+        lump = sum(by_month[m]["expenseByCat"].get(c, 0.0) for c in lumpy_cats)
+        return by_month[m]["expense"] - lump
+
+    # A `lumpy` category is a sinking fund, not a monthly pace (user
+    # decision 2026-11-11): the target accrues every elapsed month and
+    # spending draws the balance down, so the figure worth reading is the
+    # bucket level rather than a ratio. `ytd vs target * nMonths` was
+    # already this arithmetic - it just rendered as a percentage, which can
+    # only ever say "over" or "under" and so cannot express saving up and
+    # then spending. Accrual starts at the first month in the ledger (the
+    # decision was to carry all of 2026, not to open a fresh bucket), and
+    # the balance may go negative: travel ran $4,923.75 against a $150/mo
+    # accrual, and flooring at zero would hide exactly that. Derived here,
+    # never stored (CLAUDE.md), and mirrored in app.js's categoryResult().
+    def fund_for(cat):
+        rate, cum, out = targets.get(cat, 0) or 0, 0.0, []
+        for i, m in enumerate(months, start=1):
+            cum += by_month[m]["expenseByCat"].get(cat, 0.0)
+            out.append(dict(month=m, accrued=rate * i, spent=cum, balance=rate * i - cum))
+        return out
+
+    lumpy_funds = {c: fund_for(c) for c in lumpy_cats}
+
     monthly_series = [dict(month=m, income=by_month[m]["income"], expense=by_month[m]["expense"],
+                            underlying=underlying_for(m),
                             investment=by_month[m]["investment"]) for m in months]
 
     # SPEC §5: contributions are judged against net cash flow, not against
@@ -287,7 +334,7 @@ def compute(categories_cfg, targets, txns, accounts_cfg=None):
     # Lumpy-cadence categories are excluded from the paced pool (SPEC §5:
     # "a trip is one decision, not a monthly overrun") - matches app.js's
     # poolResult. A single early-month lumpy purchase shouldn't read as the
-    # whole pool being over pace; lumpy gets its own annualized YTD judgment.
+    # whole pool being over pace; lumpy gets its own sinking-fund balance.
     pooled_discretionary = [c for c in discretionary_order if cadence_of[c] != "lumpy"]
     lumpy_discretionary = [c for c in discretionary_order if cadence_of[c] == "lumpy"]
     # Displayed highest-budget-first on the Budget page (user preference).
@@ -328,7 +375,8 @@ def compute(categories_cfg, targets, txns, accounts_cfg=None):
     )
 
     return dict(
-        months=months, monthly_series=monthly_series,
+        months=months, monthly_series=monthly_series, lumpy_cats=lumpy_cats,
+        lumpy_funds=lumpy_funds,
         all_time_expense_ranked=sorted(all_time_cat.items(), key=lambda kv: -kv[1]),
         all_time_income_ranked=sorted(all_time_income_cat.items(), key=lambda kv: -kv[1]),
         all_time_transfer_ranked=sorted(all_time_transfer_cat.items(), key=lambda kv: -kv[1]),
@@ -998,6 +1046,43 @@ document.getElementById('reset-btn').addEventListener('click', () => { clearOver
 # --------------------------------------------------------- page: expenses
 
 def page_expenses(d):
+    # Total vs underlying spend (SPEC §5). Underlying drops the `lumpy`
+    # categories — the ones saved up for over months and then spent at once —
+    # so the trend line isn't dominated by when a flight happened to be
+    # booked. Total keeps the de-emphasis ink and underlying takes the
+    # expense accent, the same contract render_sparkline() uses: context
+    # recessive, the figure you actually read in the accent hue. The pair
+    # was checked with the dataviz validator in both themes (CVD ΔE 10.7
+    # light / 11.0 dark, normal-vision 21.7 / 16.6, contrast ≥3:1 both) —
+    # its one FAIL is the chroma floor, which is the *point* of a
+    # de-emphasis ink and is out of that check's categorical-palette scope.
+    # With nothing lumpy the two lines would be identical, so fall back to
+    # the single-series chart (and no legend, per the >=2-series rule).
+    lumpy_labels = [CATEGORY_LABELS.get(c, c).lower() for c in d["lumpy_cats"]]
+    total_vals = [m["expense"] for m in d["monthly_series"]]
+    exp_trend_legend = ""
+    exp_trend_sub = "Click a point to jump the month toggle there."
+    if not lumpy_labels:
+        # One series, so it takes the accent (a lone line is never recessive)
+        # and needs no legend - the heading names it.
+        exp_trend_series = [dict(name="Expenses", color="var(--series-2)", values=total_vals)]
+    else:
+        exp_trend_series = [
+            dict(name="Total", color="var(--text-muted)", values=total_vals),
+            dict(name="Underlying", color="var(--series-2)",
+                 values=[m["underlying"] for m in d["monthly_series"]]),
+        ]
+        exp_trend_sub = (
+            f"<strong>Underlying</strong> is total spend minus {and_list(lumpy_labels)} — "
+            "lumpy spending, saved up across months and then spent in one go, so it says more about "
+            "when something was booked than about the month it lands in. Read the trend off the "
+            "underlying line; the total is what actually left the account. Click a point to jump the "
+            "month toggle there.")
+        exp_trend_legend = """
+    <div class="legend">
+      <span class="legend-key"><span class="legend-swatch" style="background:var(--series-2)"></span>Underlying</span>
+      <span class="legend-key"><span class="legend-swatch" style="background:var(--text-muted)"></span>Total</span>
+    </div>"""
     body = f"""
   <div class="page-header">
     <h1>Expenses</h1>
@@ -1031,9 +1116,10 @@ def page_expenses(d):
 
   <div class="card">
     <h2>Monthly expense trend</h2>
-    <div class="card-sub">Click a point to jump the month toggle there.</div>
+    <div class="card-sub">{exp_trend_sub}</div>
+    {exp_trend_legend}
     {render_line_svg("exp-trend", [month_label(m["month"]) for m in d["monthly_series"]],
-                      [dict(name="Expenses", color="var(--series-2)", values=[m["expense"] for m in d["monthly_series"]])],
+                      exp_trend_series,
                       lambda v: f"{v/1000:.1f}k", money)}
   </div>
 
@@ -1410,11 +1496,40 @@ def page_budget(d):
 
     lumpy_card = "" if not d["lumpy_discretionary"] else f"""
   <div class="card">
-    <h2>Lumpy / one-off spending — tracked annually, not pooled</h2>
+    <h2>Lumpy / one-off spending — saved up for, not paced</h2>
     <div class="card-sub">These don't pace evenly within a month by design (SPEC §5: "a trip is one decision, not a
       monthly overrun") — pooling them would make one early-month purchase read as the whole pool being over pace.
-      Each is judged against its own annualized year-to-date target instead.</div>
+      Each is run as a <strong>sinking fund</strong> instead: the monthly target accrues into a bucket and spending
+      draws it down, so the number to read is the balance, not a percentage.</div>
     {lumpy_meters}
+  </div>"""
+
+    # One chart per lumpy category: the bucket level over time. A single
+    # balance series rather than accrued-vs-spent as two lines, because the
+    # level *is* the answer to "how much is in there" — and render_line_svg
+    # draws the zero baseline as soon as the domain crosses it, which is
+    # what makes an overdraw legible at a glance. Server-rendered from the
+    # config target, so it does not follow a browser-local target edit —
+    # the same contract the pool-history chart below it already has.
+    fund_charts = ""
+    for c in d["lumpy_discretionary"]:
+        fund = d["lumpy_funds"].get(c)
+        if not fund:
+            continue
+        label = CATEGORY_LABELS.get(c, c)
+        rate, end = d["targets"].get(c) or 0, fund[-1]["balance"]
+        state = f"{money(end)} in the bucket" if end >= 0 else f"{money(-end)} overdrawn"
+        fund_charts += f"""
+  <div class="card">
+    <h2>{esc(label)} fund — accrued vs drawn down</h2>
+    <div class="card-sub">{esc(money(rate))}/mo accrues into the bucket from {esc(month_label(fund[0]["month"]))};
+      every {esc(label.lower())} charge draws it back down. The line is the balance, so it climbs through quiet
+      months and drops on the day something gets booked — currently <strong>{esc(state)}</strong>. Below the zero
+      line means spending has outrun the accrual: a cumulative overrun, not a monthly one.</div>
+    {render_line_svg("fund-" + c, [month_label(f["month"]) for f in fund],
+                      [dict(name="Bucket balance", color="var(--series-2)",
+                            values=[f["balance"] for f in fund])],
+                      money_compact, money)}
   </div>"""
 
     history_rows = "".join(f"""<tr>
@@ -1455,6 +1570,7 @@ def page_budget(d):
   </div>
 
   {lumpy_card}
+  {fund_charts}
 
   <div class="card">
     <h2>Discretionary pool, over time</h2>

@@ -62,7 +62,11 @@ targets:
     effective_from: 2026-01-01
   - category: travel
     monthly_target: 150.00      # user-set 2026-08-11 (was 200). Back to lumpy
-                                # 2026-11-10: read as 150 x months-elapsed YTD,
-                                # not a monthly pace. NOT yet re-set to a real
-                                # save-up-and-spend figure — see SPEC §11.
+                                # 2026-11-10. Since 2026-11-11 this is an
+                                # ACCRUAL RATE, not a monthly allowance: it
+                                # adds $150 to a sinking fund each month and
+                                # travel draws the fund down (SPEC §5/§11).
+                                # Deliberately left at 150 against a ~$448/mo
+                                # actual — the fund reads $3,274 overdrawn for
+                                # 2026 and that is the intended honest read.
     effective_from: 2026-01-01

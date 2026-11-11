@@ -6,7 +6,7 @@
 # cadence drives which progress metric the dashboard shows (SPEC §5):
 #   fixed    - binary paid/not-paid, no percentage bar
 #   variable - pace-adjusted vs day-of-month
-#   lumpy    - annualized vs trailing-12-months
+#   lumpy    - sinking fund: target accrues monthly, spending draws it down
 # cadence only applies to expense categories.
 #
 # Decision (SPEC §11): merged three sparse/inconsistent categories into a
@@ -59,9 +59,11 @@ expense:
     # for travel only): travel is saved up for over months and then spent
     # in one lump, so a flat monthly pace misreads it - a single $950
     # flight booking read as November's whole discretionary pool being
-    # blown on the 10th. Back to `lumpy`: annualized YTD, and excluded from
-    # the paced pool (SPEC §5, "a trip is one decision, not a monthly
-    # overrun"). gym and shopping stay `variable`/pooled - the 2026-08-11
+    # blown on the 10th. Back to `lumpy`, and excluded from the paced pool
+    # (SPEC §5, "a trip is one decision, not a monthly overrun"). `lumpy`
+    # now reads as a sinking fund (user decision 2026-11-11): the $150/mo
+    # target accrues into a bucket and trips draw it down, so the Budget
+    # page shows a balance instead of a percentage. gym and shopping stay `variable`/pooled - the 2026-08-11
     # preference still holds for those two.
     travel:         { budget_group: discretionary, cadence: lumpy }
 

@@ -142,9 +142,14 @@ drift out of sync.
 - **`variable`** — pace-adjusted. Compare month-to-date against expected-to-date
   (`target × day_of_month / days_in_month`). Being at 60% of budget on the 12th is over
   pace; on the 25th it's under. A raw percentage can't tell you which.
-- **`lumpy`** — annualized. Compare trailing 12 months against `target × 12`. Flights at
-  $961.53 in February is not a February problem; it's a $1,426 YTD figure against a
-  $1,200 annual target.
+- **`lumpy`** — a **sinking fund**. The target is a monthly *accrual rate*, not a monthly
+  allowance: it adds to a bucket every elapsed month and spending draws the bucket down.
+  The figure shown is the balance (`target × months_elapsed − cumulative_spend`), in
+  dollars, not a percentage. Flights at $961.53 in February is not a February problem, and
+  it isn't "640% of February" either — it's $961.53 out of a bucket that had $300 in it.
+  The balance is allowed to go negative: that is the honest statement that spending has
+  outrun the accrual cumulatively, which a ratio capped at "over" cannot express. Accrual
+  starts at the first month in the ledger (see §11, 2026-11-11).
 
 ### Envelope pooling
 
@@ -355,3 +360,59 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   the target was explicitly declined for now, and would in any case rewrite every past
   month's read until time-versioned targets (§4) reach the read path — the schema has
   `effective_from`, `build_dashboard.py`/`app.js` ignore it (see `config/budgets.yml`).
+- **`underlying_spend` is built, re-based on cadence instead of tags** (2026-11-10). §5
+  defined it as "expenses excluding all tagged transactions — the trend line that actually
+  means something", then §11 descoped tagging, which left the metric defined in terms of an
+  axis that no longer exists; it was never implemented. Cadence carries the same meaning:
+  a `lumpy` category has no monthly rhythm, so `underlying = expense − lumpy`. Derived per
+  month in `compute()`, never stored. The expense trend now plots **total in the de-emphasis
+  ink and underlying in the expense accent** — context recessive, the figure you read in the
+  accent, the same contract `render_sparkline()` already documented. Total stays on the chart
+  deliberately: nothing is hidden, the eye just has a line worth following. Why it was
+  needed: travel ran 562 / 1,237 / 139 / 1,319 / 244 / 0 / 135 / 0 / 0 / 337 / 950 across
+  Jan–Nov, so the total swung to $5,027 in April and $2,639 in September mostly on flight
+  booking dates; ex-travel is a readable 2,423 → 2,755 → 3,726 → 3,708 → 3,136 → 4,363 →
+  3,155 → 2,969 → 2,639 → 2,808. With no lumpy category the two lines would coincide, so the
+  chart falls back to one accent-colored series and drops the legend. **Amortizing a lump
+  across months was considered and rejected**: it invents a figure that never happened on any
+  date and would corrupt the net-cash-flow and savings-rate views, which need real monthly
+  outflow. A save-up view belongs in its own cumulative chart, not folded into monthly spend.
+- **The current month is still plotted as if complete** on the trend charts (asked, declined
+  2026-11-10). On 2026-11-10 the November point is $1,531.62 with no rent yet, which reads as
+  a collapse in spending rather than a partial month; `render_trend_with_gap_svg()` has no
+  notion of a month in progress. Left as-is on purpose — noted so the next person doesn't
+  read that dip as real.
+- **Node is installed on the dev machine after all.** The "Stack: Python, not Node" entry
+  above is still the right call for the project's runtime, but `node` exists at
+  `/opt/homebrew/bin/node`, which is what let the dataviz palette validator run for the
+  trend-chart colors. Nothing in the build depends on it.
+- **`lumpy` is a sinking fund, not an annualized ratio** (user decision 2026-11-11). The
+  meter read `ytd` against `target × months_elapsed` and rendered it as a percentage, which
+  for travel meant a permanent ~298% and no information. The arithmetic was already right;
+  the *shape* was wrong — a ratio can only say "over" or "under", so it cannot express
+  saving up and then spending, which is the whole behaviour of a lumpy category. It now
+  reports the bucket balance in dollars (`accrued − spent`), with a per-category chart on
+  the Budget page plotting that balance over time: it climbs through quiet months and drops
+  on the day something is booked. Travel's 2026 line falls on the Feb Korea flight and the
+  April trip, climbs Jun–Sep untouched, then drops $337 in October and $950 on the November
+  Taiwan booking. Derived in `compute()`/`fund_for()` and mirrored in `app.js`'s
+  `categoryResult()`; nothing is stored. The meter bar now fills as the bucket *drains*, so
+  a full bar means empty rather than a blown budget — the dollar figure in the note is the
+  real read, which is why it leads.
+- **The accrual starts at the first month in the ledger, carrying all of 2026** (asked,
+  decided 2026-11-11). The alternatives were opening a fresh $0 bucket going forward, or
+  seeding an opening balance for what had been saved before January. Carrying the year was
+  chosen with the consequence stated: the bucket never goes positive, ending **$3,274
+  overdrawn** ($4,923.75 spent against $1,650 accrued over 11 months). It is a deficit
+  tracker for 2026 rather than a bucket with anything in it — but the month-to-month
+  *slopes* still read correctly, and the overdraw is a true figure, which is the point.
+  The $150/mo rate is unchanged, consistent with the 2026-11-10 decision above; at
+  $1,800/yr against a ~$448/mo actual, a single $950 booking is 6.3 months of accrual, so
+  the fund will go negative again next year unless travel actually slows.
+- **Travel still mixes bookings with in-trip daily spend** (noted 2026-11-11, not acted on).
+  The 2026 travel rows are partly true lumps (Korea $961.53, Taiwan $950.00, NYC $337.00)
+  and partly a second life lived abroad — April's $1,319.33 is Uniqlo, Musinsa, Olive Young,
+  a haircut, convenience stores and malatang, i.e. `shopping` and `eating_out` that happened
+  on a trip. Trip tagging was descoped (§11), so there is no axis to separate them on. This
+  matters for any future attempt to set the travel target from history: that history is
+  flights *plus* in-trip living, not a flights budget.

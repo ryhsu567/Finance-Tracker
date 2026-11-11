@@ -138,7 +138,7 @@ function categoryResult(DATA, cat, monthIdx) {
   for (let i = 0; i <= monthIdx; i++) ytd += (DATA.byMonth[DATA.months[i]].expenseByCat[cat]) || 0;
   const pace = paceForMonth(DATA, monthIdx);
   const nMonths = monthIdx + 1;
-  let status = 'neutral', ratio = null, note = '';
+  let status = 'neutral', ratio = null, note = '', balance = null;
   if (meta.cadence === 'fixed') {
     if (target) {
       ratio = actualThisMonth / target;
@@ -164,19 +164,37 @@ function categoryResult(DATA, cat, monthIdx) {
     }
   } else if (meta.cadence === 'lumpy') {
     if (target) {
-      const annualExpected = target * nMonths;
-      ratio = annualExpected ? ytd / annualExpected : null;
-      note = fmtMoney(ytd) + ' YTD vs ' + fmtMoney(annualExpected) + ' expected (' + nMonths + ' mo)';
-      status = statusForRatio(ratio);
+      // Sinking fund (user decision 2026-11-11). A lumpy category is saved
+      // up for across months and then spent in one go, so there is no
+      // monthly pace it can be "over" - the figure worth reading is the
+      // bucket level. `target` is the monthly accrual rate; spending draws
+      // the bucket down. Accrual starts at the first month in the ledger
+      // (decision: carry all of 2026 rather than open a fresh bucket), and
+      // the balance is deliberately allowed to go negative - travel ran
+      // $4,923.75 against a $150/mo accrual in 2026, and flooring at zero
+      // would hide precisely that.
+      const accrued = target * nMonths;
+      balance = accrued - ytd;
+      // The bar fills as the bucket drains, so a full bar means empty, not
+      // a blown budget. It saturates at 100% once overdrawn (renderMeterRow
+      // clamps it), which is what the note's dollar figure is there for.
+      ratio = accrued ? ytd / accrued : null;
+      const basis = fmtMoney(ytd) + ' spent of ' + fmtMoney(accrued) + ' accrued ('
+                    + nMonths + ' mo @ ' + fmtMoney(target) + '/mo)';
+      note = (balance >= 0 ? fmtMoney(balance) + ' in the bucket — '
+                           : fmtMoney(-balance) + ' overdrawn — ') + basis;
+      // Within one month's accrual of empty is a warning, not a failure: a
+      // booking landing before the fund refills is the expected rhythm.
+      status = balance >= 0 ? 'good' : (balance >= -target ? 'warning' : 'over');
     }
   }
-  return { category: cat, target, actualThisMonth, ytd, status, ratio, note, cadence: meta.cadence };
+  return { category: cat, target, actualThisMonth, ytd, status, ratio, note, balance, cadence: meta.cadence };
 }
 
 function poolResult(DATA, monthIdx, group) {
   // Lumpy-cadence categories are excluded from the paced pool (SPEC §5:
   // "a trip is one decision, not a monthly overrun") - they're judged on
-  // their own annualized YTD comparison instead (see categoryResult).
+  // their own sinking-fund balance instead (see categoryResult).
   // Pooling them here would make one early-month lumpy purchase (a flight,
   // a move-in furniture run) read as "over pace" for the whole pool, which
   // is exactly the false alarm lumpy cadence exists to prevent.
