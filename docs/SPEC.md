@@ -149,7 +149,8 @@ drift out of sync.
   it isn't "640% of February" either — it's $961.53 out of a bucket that had $300 in it.
   The balance is allowed to go negative: that is the honest statement that spending has
   outrun the accrual cumulatively, which a ratio capped at "over" cannot express. Accrual
-  starts at the first month in the ledger (see §11, 2026-11-11).
+  starts at the first month in the ledger and **never resets at a year boundary** — a fund
+  has no calendar year (see §11, 2026-11-11).
 
 ### Envelope pooling
 
@@ -416,3 +417,53 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   on a trip. Trip tagging was descoped (§11), so there is no axis to separate them on. This
   matters for any future attempt to set the travel target from history: that history is
   flights *plus* in-trip living, not a flights budget.
+- **The sinking-fund concept, settled in four parts** (user decisions 2026-11-11, talked
+  through on concept rather than on the 2026 figures):
+  1. **The balance may go negative.** A real bucket cannot hold less than nothing, so this
+     is an accounting fiction on purpose: one running number for "travel spending versus
+     the travel allowance, cumulatively". The alternative was to floor it at empty and
+     report the overflow separately, which is closer to the physical metaphor but yields
+     two numbers to read instead of one.
+  2. **No calendar years.** The fund carries forward indefinitely. This was already the
+     behaviour — `months` is every month in the ledger and the cumulative sum ran across
+     all of it — but the variable was named `ytd`, which misdescribed it badly enough to
+     invite a future "fix" into a real year-to-date that would have silently emptied every
+     fund each January. Renamed `cumulativeSpend`, with a comment saying why.
+  3. **Notional, not real money.** The $150/mo does not leave the bank; the fund is a lens
+     on existing spending, derived from the config target. If it ever becomes real cash
+     moving to savings, the pattern to copy is `emergency_fund` (SPEC §7.4) — a real dated
+     transaction, with the balance derived from transactions instead of from config. Worth
+     noting the two read identically on the chart but mean different things: one is a
+     projection, the other a fact.
+  4. **Travel never touches the discretionary pool**, regardless of the fund's balance.
+     The considered alternative was to make pool membership conditional — fund-covered
+     travel exempt, overflow charged to the pool — which is a sharper idea but is
+     incompatible with (1): with no floor at zero there is no overflow, so once the fund is
+     underwater *every* travel dollar is uncovered and travel is effectively back in the
+     pool, reinstating the exact failure the 2026-11-10 change fixed. So: the pool governs
+     month-to-month discretionary spending, the fund governs travel cumulatively. Two
+     rhythms, two mechanisms, neither leaking into the other. A negative balance is itself
+     the signal; it does not also need to penalise November's groceries.
+- **`YTD income` / `YTD expenses` / `YTD net` on the index page were mislabelled** (found
+  and fixed 2026-11-11). They summed `monthly_series`, which is every month in the ledger,
+  so they were lifetime-cumulative figures wearing a year-to-date label — the same
+  confusion `ytd` had in `app.js`. Harmless while the ledger held one calendar year, wrong
+  the moment it spanned two. Now scoped to the year of the newest month in the ledger, and
+  the card heading names that year. Deliberately *not* the current wall-clock year: the
+  dashboard is a view of the ledger, so a January rebuild against December data should show
+  that data rather than three empty tiles. The figures are unchanged today ($56,924 /
+  $37,245 / $19,680) because the ledger holds only 2026 — this is a correctness fix for the
+  first year-boundary crossing, not a change to what is on screen now.
+- **Where the bucket is shown** (2026-11-11). Asked whether it deserved its own tab;
+  decided no — the nav is data *domains* (Dashboard / Expenses / Income / Investments /
+  Budget / Import) and a sinking fund is one category's budget mechanic, so a tab would be
+  out of proportion and would split the balance from the chart explaining it. Instead the
+  meter and its chart are interleaved inside the single lumpy card on the Budget tab, one
+  pair per lumpy category, so they read as one object. The balance also appears as a
+  `Spending buckets` tile card on the Dashboard tab — its own card rather than a fourth
+  tile under `Year to date`, because a bucket never resets at a year boundary and that card
+  is now explicitly scoped to one year. The trigger to revisit the tab question is Fork 3
+  flipping (see above): if the accrual ever becomes real cash moving to savings, the
+  buckets become real balances in a domain of their own, alongside Investments.
+  The chart heading was `accrued vs drawn down` until the user pointed out it was
+  accountant-speak for "in vs out" — now `<label> bucket — balance over time`.

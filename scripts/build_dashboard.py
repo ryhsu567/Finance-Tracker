@@ -277,12 +277,13 @@ def compute(categories_cfg, targets, txns, accounts_cfg=None):
     # A `lumpy` category is a sinking fund, not a monthly pace (user
     # decision 2026-11-11): the target accrues every elapsed month and
     # spending draws the balance down, so the figure worth reading is the
-    # bucket level rather than a ratio. `ytd vs target * nMonths` was
+    # bucket level rather than a ratio. `cumulative vs target * nMonths` was
     # already this arithmetic - it just rendered as a percentage, which can
     # only ever say "over" or "under" and so cannot express saving up and
     # then spending. Accrual starts at the first month in the ledger (the
-    # decision was to carry all of 2026, not to open a fresh bucket), and
-    # the balance may go negative: travel ran $4,923.75 against a $150/mo
+    # decision was to carry all of 2026, not to open a fresh bucket) and
+    # never resets at a year boundary - a fund has no calendar year. The
+    # balance may go negative: travel ran $4,923.75 against a $150/mo
     # accrual, and flooring at zero would hide exactly that. Derived here,
     # never stored (CLAUDE.md), and mirrored in app.js's categoryResult().
     def fund_for(cat):
@@ -888,9 +889,46 @@ window.DATA = {json.dumps(client_data)};
 # --------------------------------------------------------- page: dashboard
 
 def page_dashboard(d, warnings):
+    # The "Year to date" tiles used to sum every month in `monthly_series`,
+    # which is the whole ledger — lifetime-cumulative figures wearing a
+    # year-to-date label. Harmless while the ledger held one calendar year,
+    # wrong the moment it spans two (noted and fixed 2026-11-11, same class
+    # of bug as `ytd` in app.js). Scoped to the year of the newest month in
+    # the ledger, so the card's heading is now true. Deliberately NOT the
+    # current wall-clock year: the dashboard is a view of the ledger, and a
+    # January rebuild against December data should still show that data
+    # rather than three empty tiles.
+    ytd_year = d["months"][-1][:4]
+    ytd_series = [m for m in d["monthly_series"] if m["month"].startswith(ytd_year)]
     months_lbl = [month_label(m["month"]) for m in d["monthly_series"]]
     income_vals = [m["income"] for m in d["monthly_series"]]
     expense_vals = [m["expense"] for m in d["monthly_series"]]
+
+    # (b) The bucket balances, on the at-a-glance page. Its own card rather
+    # than a fourth tile in "Year to date": a bucket never resets at a year
+    # boundary, so putting it in a card that now explicitly scopes itself to
+    # one year would reintroduce exactly the mislabelling fixed just above.
+    # Red below zero, green at or above it — the sign is the whole message.
+    bucket_tiles = ""
+    for c in d["lumpy_cats"]:
+        fund = d["lumpy_funds"].get(c)
+        if not fund:
+            continue
+        label, bal = CATEGORY_LABELS.get(c, c), fund[-1]["balance"]
+        rate = d["targets"].get(c) or 0
+        bucket_tiles += render_stat_tile_static(
+            f"{label} bucket",
+            money(bal) if bal >= 0 else f"{money(-bal)} overdrawn",
+            "var(--good)" if bal >= 0 else "var(--critical)",
+            sub=f"{money(rate)}/mo since {month_label(fund[0]['month'])}")
+    buckets_html = "" if not bucket_tiles else f"""
+  <div class="card">
+    <h2>Spending buckets</h2>
+    <div class="card-sub">Lumpy categories are saved up for rather than paced, so each accrues its monthly target
+      into a bucket that spending draws down. Carries across years and may go negative — a negative balance means
+      spending has outrun the accrual cumulatively. Detail and history on the <a href="budget.html">Budget</a> tab.</div>
+    <div class="tiles">{bucket_tiles}</div>
+  </div>"""
 
     warnings_html = ""
     if warnings:
@@ -984,14 +1022,16 @@ def page_dashboard(d, warnings):
   </div>
 
   <div class="card">
-    <h2>Year to date</h2>
-    <div class="card-sub">{d['n_months']} months, {esc(month_label(d['months'][0]))} through {esc(month_label(d['months'][-1]))}.</div>
+    <h2>Year to date — {esc(ytd_year)}</h2>
+    <div class="card-sub">{len(ytd_series)} month{'' if len(ytd_series) == 1 else 's'}, {esc(month_label(ytd_series[0]['month']))} through {esc(month_label(ytd_series[-1]['month']))}.</div>
     <div class="tiles">
-      {render_stat_tile_static("YTD income", money(sum(m["income"] for m in d["monthly_series"])), "var(--series-1)")}
-      {render_stat_tile_static("YTD expenses", money(sum(m["expense"] for m in d["monthly_series"])), "var(--series-2)")}
-      {render_stat_tile_static("YTD net", money(sum(m["income"] - m["expense"] for m in d["monthly_series"])), "var(--good)")}
+      {render_stat_tile_static("YTD income", money(sum(m["income"] for m in ytd_series)), "var(--series-1)")}
+      {render_stat_tile_static("YTD expenses", money(sum(m["expense"] for m in ytd_series)), "var(--series-2)")}
+      {render_stat_tile_static("YTD net", money(sum(m["income"] - m["expense"] for m in ytd_series)), "var(--good)")}
     </div>
   </div>
+
+  {buckets_html}
 
   {investing_html}
 
@@ -1486,13 +1526,41 @@ def page_budget(d):
         render_meter_skeleton(c, CATEGORY_LABELS[c], d["cadence_of"][c]) for c in d["baseline_order"])
     pooled_meters = "".join(
         render_meter_skeleton(c, CATEGORY_LABELS[c], d["cadence_of"][c]) for c in d["pooled_discretionary"])
-    lumpy_meters = "".join(
-        render_meter_skeleton(c, CATEGORY_LABELS[c], d["cadence_of"][c]) for c in d["lumpy_discretionary"])
     # Only mention the lumpy card when there is one — every discretionary
     # category is `variable` as of 2026-08-11, so it usually renders nothing.
     pool_scope_note = ("Only variable-cadence categories are pooled here — lumpy ones are tracked separately below."
                        if d["lumpy_discretionary"] else
                        "Every discretionary category is variable-cadence right now, so all of them are pooled here.")
+
+    # Each lumpy category renders as its meter followed immediately by its
+    # own bucket chart, inside the one card: the balance figure and the
+    # history that explains it are the same object, so they shouldn't read
+    # as two stacked cards that merely happen to be adjacent. A single
+    # balance series rather than accrued-vs-spent as two lines, because the
+    # level *is* the answer to "how much is in there" — and render_line_svg
+    # draws the zero baseline as soon as the domain crosses it, which is
+    # what makes an overdraw legible at a glance. Server-rendered from the
+    # config target, so the chart does not follow a browser-local target
+    # edit — the same contract the pool-history chart below it already has.
+    lumpy_blocks = ""
+    for c in d["lumpy_discretionary"]:
+        lumpy_blocks += render_meter_skeleton(c, CATEGORY_LABELS[c], d["cadence_of"][c])
+        fund = d["lumpy_funds"].get(c)
+        if not fund:
+            continue
+        label = CATEGORY_LABELS.get(c, c)
+        rate, end = d["targets"].get(c) or 0, fund[-1]["balance"]
+        state = f"{money(end)} in the bucket" if end >= 0 else f"{money(-end)} overdrawn"
+        lumpy_blocks += f"""
+    <div class="group-label">{esc(label)} bucket — balance over time</div>
+    <div class="card-sub">{esc(money(rate))}/mo accrues into the bucket from {esc(month_label(fund[0]["month"]))};
+      every {esc(label.lower())} charge draws it back down. The line is the balance, so it climbs through quiet
+      months and drops on the day something gets booked — currently <strong>{esc(state)}</strong>. Below the zero
+      line means spending has outrun the accrual: a cumulative overrun, not a monthly one.</div>
+    {render_line_svg("fund-" + c, [month_label(f["month"]) for f in fund],
+                      [dict(name="Bucket balance", color="var(--series-2)",
+                            values=[f["balance"] for f in fund])],
+                      money_compact, money)}"""
 
     lumpy_card = "" if not d["lumpy_discretionary"] else f"""
   <div class="card">
@@ -1501,35 +1569,7 @@ def page_budget(d):
       monthly overrun") — pooling them would make one early-month purchase read as the whole pool being over pace.
       Each is run as a <strong>sinking fund</strong> instead: the monthly target accrues into a bucket and spending
       draws it down, so the number to read is the balance, not a percentage.</div>
-    {lumpy_meters}
-  </div>"""
-
-    # One chart per lumpy category: the bucket level over time. A single
-    # balance series rather than accrued-vs-spent as two lines, because the
-    # level *is* the answer to "how much is in there" — and render_line_svg
-    # draws the zero baseline as soon as the domain crosses it, which is
-    # what makes an overdraw legible at a glance. Server-rendered from the
-    # config target, so it does not follow a browser-local target edit —
-    # the same contract the pool-history chart below it already has.
-    fund_charts = ""
-    for c in d["lumpy_discretionary"]:
-        fund = d["lumpy_funds"].get(c)
-        if not fund:
-            continue
-        label = CATEGORY_LABELS.get(c, c)
-        rate, end = d["targets"].get(c) or 0, fund[-1]["balance"]
-        state = f"{money(end)} in the bucket" if end >= 0 else f"{money(-end)} overdrawn"
-        fund_charts += f"""
-  <div class="card">
-    <h2>{esc(label)} fund — accrued vs drawn down</h2>
-    <div class="card-sub">{esc(money(rate))}/mo accrues into the bucket from {esc(month_label(fund[0]["month"]))};
-      every {esc(label.lower())} charge draws it back down. The line is the balance, so it climbs through quiet
-      months and drops on the day something gets booked — currently <strong>{esc(state)}</strong>. Below the zero
-      line means spending has outrun the accrual: a cumulative overrun, not a monthly one.</div>
-    {render_line_svg("fund-" + c, [month_label(f["month"]) for f in fund],
-                      [dict(name="Bucket balance", color="var(--series-2)",
-                            values=[f["balance"] for f in fund])],
-                      money_compact, money)}
+    {lumpy_blocks}
   </div>"""
 
     history_rows = "".join(f"""<tr>
@@ -1570,7 +1610,6 @@ def page_budget(d):
   </div>
 
   {lumpy_card}
-  {fund_charts}
 
   <div class="card">
     <h2>Discretionary pool, over time</h2>

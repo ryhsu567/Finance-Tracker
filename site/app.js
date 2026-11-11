@@ -134,8 +134,14 @@ function categoryResult(DATA, cat, monthIdx) {
   const month = DATA.months[monthIdx];
   const target = effectiveTarget(DATA, cat);
   const actualThisMonth = (DATA.byMonth[month].expenseByCat[cat]) || 0;
-  let ytd = 0;
-  for (let i = 0; i <= monthIdx; i++) ytd += (DATA.byMonth[DATA.months[i]].expenseByCat[cat]) || 0;
+  // Cumulative since the first month in the ledger, NOT year-to-date. The
+  // distinction matters for `lumpy`: a sinking fund has no notion of a
+  // calendar year (user decision 2026-11-11), so this must keep summing
+  // across a year boundary. It was called `ytd` until then, which was an
+  // invitation to "fix" it into a real year-to-date and silently empty
+  // every fund each January. Don't.
+  let cumulativeSpend = 0;
+  for (let i = 0; i <= monthIdx; i++) cumulativeSpend += (DATA.byMonth[DATA.months[i]].expenseByCat[cat]) || 0;
   const pace = paceForMonth(DATA, monthIdx);
   const nMonths = monthIdx + 1;
   let status = 'neutral', ratio = null, note = '', balance = null;
@@ -169,17 +175,18 @@ function categoryResult(DATA, cat, monthIdx) {
       // monthly pace it can be "over" - the figure worth reading is the
       // bucket level. `target` is the monthly accrual rate; spending draws
       // the bucket down. Accrual starts at the first month in the ledger
-      // (decision: carry all of 2026 rather than open a fresh bucket), and
+      // (decision: carry all of 2026 rather than open a fresh bucket) and
+      // never resets at a year boundary - a fund has no calendar year. And
       // the balance is deliberately allowed to go negative - travel ran
       // $4,923.75 against a $150/mo accrual in 2026, and flooring at zero
       // would hide precisely that.
       const accrued = target * nMonths;
-      balance = accrued - ytd;
+      balance = accrued - cumulativeSpend;
       // The bar fills as the bucket drains, so a full bar means empty, not
       // a blown budget. It saturates at 100% once overdrawn (renderMeterRow
       // clamps it), which is what the note's dollar figure is there for.
-      ratio = accrued ? ytd / accrued : null;
-      const basis = fmtMoney(ytd) + ' spent of ' + fmtMoney(accrued) + ' accrued ('
+      ratio = accrued ? cumulativeSpend / accrued : null;
+      const basis = fmtMoney(cumulativeSpend) + ' spent of ' + fmtMoney(accrued) + ' accrued ('
                     + nMonths + ' mo @ ' + fmtMoney(target) + '/mo)';
       note = (balance >= 0 ? fmtMoney(balance) + ' in the bucket — '
                            : fmtMoney(-balance) + ' overdrawn — ') + basis;
@@ -188,7 +195,7 @@ function categoryResult(DATA, cat, monthIdx) {
       status = balance >= 0 ? 'good' : (balance >= -target ? 'warning' : 'over');
     }
   }
-  return { category: cat, target, actualThisMonth, ytd, status, ratio, note, balance, cadence: meta.cadence };
+  return { category: cat, target, actualThisMonth, cumulativeSpend, status, ratio, note, balance, cadence: meta.cadence };
 }
 
 function poolResult(DATA, monthIdx, group) {
