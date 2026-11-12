@@ -55,6 +55,7 @@ trips:
   - name: taiwan
     label: Taiwan
     status: ongoing
-    # Flights booked 11/7; the trip has not happened yet.
+    # Flights booked 11/7 and 11/10; the trip has not happened yet, so these
+    # windows cover bookings only — add the trip's own dates when they are set.
     windows:
-      - ["2026-11-07", "2026-11-07"]
+      - ["2026-11-07", "2026-11-10"]
