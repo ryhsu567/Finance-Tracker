@@ -513,3 +513,22 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   of* the signed number, which is still on the Travel tab where the balance is the subject.
   `render_static_bar()` renders the existing bar-list markup at build time so the static
   card and the JS-driven ones are indistinguishable.
+- **New income category `rebate`** (user decision 2026-11-11), for a Costco membership
+  rebate. Asked rather than guessed: `reimbursement` is the nearest existing fit but its
+  precedent is being paid back for something fronted on someone else's behalf ("Eye Medical
+  Reimbursement"), which a rebate is not, and the alternative read was `kind: transfer` on
+  the argument that money back on your own groceries is not earnings — counting it as income
+  inflates the income and expense totals against each other and flatters the savings rate.
+  The call was a category of its own under `kind: income`. No raw-label mapping: rebates
+  arrive through the Import tab, not the Income sheet. Adding it meant touching
+  `INCOME_LABELS` as well as `categories.yml`, because `income_categories_json` is built
+  from that dict's keys — a category missing from it is in the data but renders nowhere on
+  the Income page. That dict now says so in a comment.
+- **`canonical_categories()` does not check category against kind** (found 2026-11-11, not
+  fixed, offered). `scripts/load.py:124` flattens all four kinds into one set, so
+  `kind=income` with `category=other` — an expense category — validates clean and lands in
+  the database, where it would show up as an income category on the Income page. Nothing in
+  the loader or the staging script catches it. This surfaced from a request to file the
+  rebate under `other` "for now"; the row was not staged, and a `rebate` category was added
+  instead. A kind-aware check belongs in `canonical_categories()` or beside the `VALID_KINDS`
+  check, and is squarely in the spirit of §6.1's fail-loudly rule.

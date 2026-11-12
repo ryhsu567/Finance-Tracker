@@ -43,9 +43,15 @@ CATEGORY_LABELS = {
     "sweet_treat": "Sweet treat", "entertainment": "Entertainment", "gym": "Gym",
     "shopping": "Shopping", "other": "Other", "travel": "Travel",
 }
+# Every income category in config/categories.yml needs a label here, not
+# just for display: income_categories_json is built from this dict's keys,
+# so a category missing from it is absent from the client payload and its
+# rows render nowhere on the Income page — present in the data, invisible on
+# screen, which is the silent-drop failure this project exists to prevent.
 INCOME_LABELS = {
     "salary": "Salary", "gift": "Gift", "side_hustle": "Side hustle",
     "tax_refund": "Tax refund", "reimbursement": "Reimbursement", "resale": "Resale",
+    "rebate": "Rebate",
 }
 TRANSFER_LABELS = {"stock_sale": "Stock sale", "deposit_return": "Deposit return"}
 INVESTMENT_LABELS = {"brokerage": "Brokerage", "roth_ira": "Roth IRA",

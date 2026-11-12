@@ -74,6 +74,16 @@ income:
   tax_refund: {}
   reimbursement: {}
   resale: {}
+  # Added 2026-11-11 (user decision) for a Costco membership rebate. Asked
+  # whether it belonged in `reimbursement` — the closest existing fit, but
+  # its precedent is being paid back for something fronted on someone
+  # else's behalf ("Eye Medical Reimbursement"), which a rebate is not —
+  # or under `kind: transfer`, on the argument that money back on your own
+  # groceries isn't earnings and counting it as income inflates both the
+  # income and expense totals against each other. The call was a category
+  # of its own, kept under `kind: income`. No raw-label mapping: rebates
+  # arrive through the Import tab, not the Income sheet.
+  rebate: {}
 
 transfer:
   stock_sale: {}
