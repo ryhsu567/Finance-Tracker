@@ -205,6 +205,19 @@ comment — don't bury it in a divisor.
    (Flights to SF, Uber+Lyft for SF, Bi-Rite Market, CVS, Sausalito Ferry, Ben Thai);
    February/March have Korea (Korea Flight, O2 Valley, Pho Element, Khao Tiew, Malatang).
    Confirm the date ranges so `trip:` tags can be assigned by date window rather than by hand.
+   **Finding, 2026-11-11: a date window cannot do it, and two premises above look wrong.**
+   Bookings do not sit inside the trip they pay for — `Korea Flight` is 2026-02-09 for a
+   trip whose on-the-ground spending is 2026-04-20/28, `NYC Flights` (2026-10-28) and
+   `Taiwan flights` (2026-11-07) are for trips that have not happened yet, and
+   `Flight to NYC from SF` (2026-03-25) has no matching cluster at all. So any window
+   assigns the booking to one trip and the trip to another, or to none. Relatedly, the
+   Feb 12–16 rows grouped as "Korea" above (O2 Valley, Pho Element, Khao Tiew, Malatang,
+   PhotoBooth, Clipper, Lyft Ride) read as local Bay Area spending around Valentine's, not
+   Korea — the actual Korea trip rows are the April ones (Olive Young, Musinsa, Uniqlo
+   Drop, Convenience Stores, Korea Misc.). Needs a per-transaction trip assignment, by
+   hand or confirmed row by row; it is not derivable. The Buckets tab lists every charge
+   with its date and description instead, so trips stay legible without the build
+   asserting a boundary it cannot know.
 2. **Which budget scenario is live?** The tracker uses Scenario A (Rent $1,900, Gym $280,
    no Insurance). Scenario B is a different shape — Rent $2,000, adds Insurance, 401k Roth,
    Entertainment; drops Flights, Gym, Travel. Proposal, post-move plan, or dead?
@@ -467,3 +480,23 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   buckets become real balances in a domain of their own, alongside Investments.
   The chart heading was `accrued vs drawn down` until the user pointed out it was
   accountant-speak for "in vs out" — now `<label> bucket — balance over time`.
+- **The buckets get their own tab** (user decision 2026-11-11, reversing the call made
+  earlier the same day). The earlier reasoning — the nav is data domains, one meter plus
+  one chart does not justify a tab — held only while that was all there was. The ask was to
+  see accumulated *and* spent, broken down, and accrual, spend, a monthly table and a
+  charge list are a domain's worth of content, while the Budget page is about targets. So:
+  `buckets.html`, one section per lumpy category, with three tiles (accumulated / spent /
+  balance), an accumulated-vs-spent cumulative chart whose vertical gap is the balance, the
+  balance line, a month-by-month table (added / spent / running balance), and every charge
+  listed newest-first. The Budget page keeps the meter and a one-line state summary linking
+  here, rather than a second copy of the chart to keep honest. The Dashboard's `Spending
+  buckets` tiles now link here too. Colors reuse `--series-1`/`--series-2`, re-validated as
+  a pair for this chart: all six checks pass in both themes (CVD ΔE 24.7 light / 26.8 dark,
+  normal-vision 33.6 / 31.8, contrast ≥3:1).
+- **No by-trip grouping, and it is not a scoping shortcut** (2026-11-11). Asked for
+  "by month or by trip"; by month is derived and shipped, by trip is not possible from the
+  data. See §7.1 — bookings precede the trips they pay for by months, two of them are for
+  trips that have not happened, so no date window groups them, and inventing a trip
+  taxonomy from descriptions is the guessing CLAUDE.md forbids. It needs the
+  `transaction_tags`/`envelopes` tables that §11 descoped plus a hand-made trip list. The
+  charge list is the stand-in.

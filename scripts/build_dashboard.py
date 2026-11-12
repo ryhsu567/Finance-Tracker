@@ -64,7 +64,8 @@ STATUS_TEXT = {"good": "on pace", "warning": "watch", "critical": "over pace", "
 
 NAV = [("index.html", "Dashboard"), ("expenses.html", "Expenses"),
        ("income.html", "Income"), ("investments.html", "Investments"),
-       ("budget.html", "Budget"), ("import.html", "Import")]
+       ("budget.html", "Budget"), ("buckets.html", "Buckets"),
+       ("import.html", "Import")]
 
 
 # ---------------------------------------------------------------- data ----
@@ -289,11 +290,29 @@ def compute(categories_cfg, targets, txns, accounts_cfg=None):
     def fund_for(cat):
         rate, cum, out = targets.get(cat, 0) or 0, 0.0, []
         for i, m in enumerate(months, start=1):
-            cum += by_month[m]["expenseByCat"].get(cat, 0.0)
-            out.append(dict(month=m, accrued=rate * i, spent=cum, balance=rate * i - cum))
+            this_month = by_month[m]["expenseByCat"].get(cat, 0.0)
+            cum += this_month
+            out.append(dict(month=m, accrued=rate * i, spent=cum, balance=rate * i - cum,
+                            added=rate, spent_month=this_month))
         return out
 
     lumpy_funds = {c: fund_for(c) for c in lumpy_cats}
+
+    # The individual charges behind each bucket, server-side only (they are
+    # not in window.DATA — by_month carries aggregates, not rows — and the
+    # Buckets page is static, so there is no reason to ship them to the
+    # client). Listed so a trip is at least *visible* by eye: there is no
+    # trip axis to group by, because tagging was descoped (§11) and a trip
+    # cannot be inferred from dates — the Korea flight was booked 2026-02-09
+    # for a trip that happened 2026-04-20/28, so any date clustering would
+    # file the booking and the trip as two unrelated events.
+    lumpy_txns = {
+        c: sorted(
+            (dict(date=t["date"], description=t["description"], amount=t["amount"])
+             for t in txns if t["kind"] == "expense" and t["category"] == c),
+            key=lambda r: r["date"])
+        for c in lumpy_cats
+    }
 
     monthly_series = [dict(month=m, income=by_month[m]["income"], expense=by_month[m]["expense"],
                             underlying=underlying_for(m),
@@ -377,7 +396,7 @@ def compute(categories_cfg, targets, txns, accounts_cfg=None):
 
     return dict(
         months=months, monthly_series=monthly_series, lumpy_cats=lumpy_cats,
-        lumpy_funds=lumpy_funds,
+        lumpy_funds=lumpy_funds, lumpy_txns=lumpy_txns,
         all_time_expense_ranked=sorted(all_time_cat.items(), key=lambda kv: -kv[1]),
         all_time_income_ranked=sorted(all_time_income_cat.items(), key=lambda kv: -kv[1]),
         all_time_transfer_ranked=sorted(all_time_transfer_cat.items(), key=lambda kv: -kv[1]),
@@ -926,7 +945,8 @@ def page_dashboard(d, warnings):
     <h2>Spending buckets</h2>
     <div class="card-sub">Lumpy categories are saved up for rather than paced, so each accrues its monthly target
       into a bucket that spending draws down. Carries across years and may go negative — a negative balance means
-      spending has outrun the accrual cumulatively. Detail and history on the <a href="budget.html">Budget</a> tab.</div>
+      spending has outrun the accrual cumulatively. Accrual, spending and history on the
+      <a href="buckets.html">Buckets</a> tab.</div>
     <div class="tiles">{bucket_tiles}</div>
   </div>"""
 
@@ -1532,16 +1552,11 @@ def page_budget(d):
                        if d["lumpy_discretionary"] else
                        "Every discretionary category is variable-cadence right now, so all of them are pooled here.")
 
-    # Each lumpy category renders as its meter followed immediately by its
-    # own bucket chart, inside the one card: the balance figure and the
-    # history that explains it are the same object, so they shouldn't read
-    # as two stacked cards that merely happen to be adjacent. A single
-    # balance series rather than accrued-vs-spent as two lines, because the
-    # level *is* the answer to "how much is in there" — and render_line_svg
-    # draws the zero baseline as soon as the domain crosses it, which is
-    # what makes an overdraw legible at a glance. Server-rendered from the
-    # config target, so the chart does not follow a browser-local target
-    # edit — the same contract the pool-history chart below it already has.
+    # The meter only. Accrual, spend, the monthly table and the charge list
+    # live on the Buckets tab (user decision 2026-11-11) — this page is
+    # about targets, and duplicating the chart in both places would mean two
+    # copies to keep honest. A one-line state summary stays here so the
+    # Budget page is not silent about where the bucket actually stands.
     lumpy_blocks = ""
     for c in d["lumpy_discretionary"]:
         lumpy_blocks += render_meter_skeleton(c, CATEGORY_LABELS[c], d["cadence_of"][c])
@@ -1549,18 +1564,11 @@ def page_budget(d):
         if not fund:
             continue
         label = CATEGORY_LABELS.get(c, c)
-        rate, end = d["targets"].get(c) or 0, fund[-1]["balance"]
+        end = fund[-1]["balance"]
         state = f"{money(end)} in the bucket" if end >= 0 else f"{money(-end)} overdrawn"
         lumpy_blocks += f"""
-    <div class="group-label">{esc(label)} bucket — balance over time</div>
-    <div class="card-sub">{esc(money(rate))}/mo accrues into the bucket from {esc(month_label(fund[0]["month"]))};
-      every {esc(label.lower())} charge draws it back down. The line is the balance, so it climbs through quiet
-      months and drops on the day something gets booked — currently <strong>{esc(state)}</strong>. Below the zero
-      line means spending has outrun the accrual: a cumulative overrun, not a monthly one.</div>
-    {render_line_svg("fund-" + c, [month_label(f["month"]) for f in fund],
-                      [dict(name="Bucket balance", color="var(--series-2)",
-                            values=[f["balance"] for f in fund])],
-                      money_compact, money)}"""
+    <div class="meter-note" style="margin-top:6px">{esc(label)} bucket: <strong>{esc(state)}</strong> —
+      <a href="buckets.html">accrual, spending and history on the Buckets tab →</a></div>"""
 
     lumpy_card = "" if not d["lumpy_discretionary"] else f"""
   <div class="card">
@@ -1657,6 +1665,135 @@ populateMonthSelect(document.getElementById('month-select'), window.DATA, render
 renderBudgetPage(currentMonthIdx);
 """
     return render_shell("Budget", "budget.html", body, d["client_data"], init_js)
+
+
+# ---------------------------------------------------------- page: buckets
+
+def page_buckets(d):
+    """One section per lumpy category: what has accumulated, what has been
+    spent, and the balance between them, broken down by month and listed
+    charge by charge.
+
+    Its own tab (user decision 2026-11-11, reversing the call made earlier
+    the same day): a single meter plus one chart belonged on the Budget
+    page, but accrual, spend, a monthly table and a charge list are a
+    domain's worth of content, and the Budget page is about *targets*.
+
+    There is deliberately no by-trip grouping. A trip is not a date range:
+    the Korea flight was booked 2026-02-09 for a trip taken 2026-04-20/28,
+    and two bookings on the ledger (NYC, Taiwan) are for trips that have not
+    happened yet, so clustering on dates would file a booking apart from the
+    trip it paid for. Grouping by trip needs a hand-maintained trip list —
+    the `transaction_tags`/`envelopes` tables that §11 descoped — and
+    inventing one from descriptions is exactly the guessing CLAUDE.md
+    forbids. The charge list below is the stand-in: trips are legible by eye
+    without the build having to assert where one begins.
+    """
+    sections = ""
+    for c in d["lumpy_cats"]:
+        fund = d["lumpy_funds"].get(c)
+        if not fund:
+            continue
+        label = CATEGORY_LABELS.get(c, c)
+        rate = d["targets"].get(c) or 0
+        accrued, spent, bal = fund[-1]["accrued"], fund[-1]["spent"], fund[-1]["balance"]
+        since = month_label(fund[0]["month"])
+
+        rows = "".join(f"""<tr>
+      <td>{esc(month_label(f['month']))}</td>
+      <td class="num">{esc(money(f['added']))}</td>
+      <td class="num">{esc(money(f['spent_month']) if f['spent_month'] else '—')}</td>
+      <td class="num">{esc(money(f['balance']))}</td>
+    </tr>""" for f in reversed(fund))
+
+        txns = d["lumpy_txns"].get(c, [])
+        txn_rows = "".join(f"""<tr>
+      <td class="f-date">{esc(t['date'])}</td>
+      <td>{esc(t['description'])}</td>
+      <td class="num">{esc(money(t['amount']))}</td>
+    </tr>""" for t in reversed(txns))
+        txn_table = "" if not txns else f"""
+  <div class="card">
+    <h2>Every {esc(label.lower())} charge — {len(txns)} of them</h2>
+    <div class="card-sub">Newest first. No trip grouping: a booking and the trip it pays for are months apart
+      (the Korea flight was booked {esc(month_label('2026-02'))}, the trip was {esc(month_label('2026-04'))}), so there is
+      no date range to group on and no trip tag in the data. Read the trips off the descriptions for now.</div>
+    <table class="data-table">
+      <thead><tr><th>Date</th><th>Description</th><th class="num">Amount</th></tr></thead>
+      <tbody>{txn_rows}</tbody>
+    </table>
+  </div>"""
+
+        sections += f"""
+  <div class="card">
+    <h2>{esc(label)} bucket</h2>
+    <div class="card-sub">{esc(money(rate))}/mo has been accruing since {esc(since)}, and {esc(label.lower())}
+      spending draws it down. The balance carries across years and may go negative — below zero means spending has
+      outrun the accrual cumulatively, not that a single month went over.</div>
+    <div class="tiles">
+      {render_stat_tile_static("Accumulated", money(accrued), "var(--series-1)",
+                                sub=f"{money(rate)}/mo x {len(fund)} months")}
+      {render_stat_tile_static("Spent", money(spent), "var(--series-2)",
+                                sub=f"{len(txns)} charge{'' if len(txns) == 1 else 's'}")}
+      {render_stat_tile_static("Balance", money(bal) if bal >= 0 else f"{money(-bal)} overdrawn",
+                                "var(--good)" if bal >= 0 else "var(--critical)",
+                                sub="in the bucket" if bal >= 0 else "spent beyond the accrual")}
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Accumulated vs spent</h2>
+    <div class="card-sub">Both running totals since {esc(since)}. The vertical gap between the lines is the
+      balance — accrual above spending means money in the bucket, spending above accrual means it is overdrawn.</div>
+    <div class="legend">
+      <span class="legend-key"><span class="legend-swatch" style="background:var(--series-1)"></span>Accumulated</span>
+      <span class="legend-key"><span class="legend-swatch" style="background:var(--series-2)"></span>Spent</span>
+    </div>
+    {render_line_svg("cum-" + c, [month_label(f["month"]) for f in fund],
+                      [dict(name="Accumulated", color="var(--series-1)", values=[f["accrued"] for f in fund]),
+                       dict(name="Spent", color="var(--series-2)", values=[f["spent"] for f in fund])],
+                      money_compact, money)}
+  </div>
+
+  <div class="card">
+    <h2>Balance over time</h2>
+    <div class="card-sub">The same two series as one number: what is actually in the bucket. It climbs through
+      months with little or no {esc(label.lower())} spending and drops on the day something gets booked.</div>
+    {render_line_svg("fund-" + c, [month_label(f["month"]) for f in fund],
+                      [dict(name="Balance", color="var(--series-2)", values=[f["balance"] for f in fund])],
+                      money_compact, money)}
+  </div>
+
+  <div class="card">
+    <h2>Month by month</h2>
+    <div class="card-sub">Newest first. <strong>Added</strong> is the monthly accrual, <strong>spent</strong> is
+      actual {esc(label.lower())} spending that month, and <strong>balance</strong> is the running total of the two.</div>
+    <table class="data-table">
+      <thead><tr><th>Month</th><th class="num">Added</th><th class="num">Spent</th><th class="num">Balance</th></tr></thead>
+      <tbody>{rows}</tbody>
+    </table>
+  </div>
+{txn_table}"""
+
+    if not sections:
+        sections = """
+  <div class="card">
+    <h2>No buckets yet</h2>
+    <div class="card-sub">A bucket appears here for every category with <code>cadence: lumpy</code> in
+      config/categories.yml. Nothing is lumpy right now, so there is nothing to accrue.</div>
+  </div>"""
+
+    body = f"""
+  <div class="page-header">
+    <h1>Buckets</h1>
+    <div class="subtitle">Lumpy categories are saved up for, not paced — each accrues its monthly target and
+      spending draws it down</div>
+  </div>
+{sections}
+
+  <footer class="page-footer">Built from data/budget.db · accrual rates come from config/budgets.yml ·
+    balances are derived, never stored</footer>"""
+    return render_shell("Buckets", "buckets.html", body, d["client_data"], "")
 
 
 # ----------------------------------------------------------- page: import
@@ -1803,6 +1940,7 @@ def main():
         "income.html": page_income(d),
         "investments.html": page_investments(d),
         "budget.html": page_budget(d),
+        "buckets.html": page_buckets(d),
         "import.html": page_import(d),
     }
     for name, html in pages.items():
