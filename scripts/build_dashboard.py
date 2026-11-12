@@ -64,7 +64,7 @@ STATUS_TEXT = {"good": "on pace", "warning": "watch", "critical": "over pace", "
 
 NAV = [("index.html", "Dashboard"), ("expenses.html", "Expenses"),
        ("income.html", "Income"), ("investments.html", "Investments"),
-       ("budget.html", "Budget"), ("buckets.html", "Buckets"),
+       ("budget.html", "Budget"), ("travel.html", "Travel"),
        ("import.html", "Import")]
 
 
@@ -829,6 +829,18 @@ def render_stat_tile_static(label, value, accent=None, sub=None):
             f'<div class="tile-value">{esc(value)}</div>{sub_html}</div>')
 
 
+def render_static_bar(label, value_text, frac, color):
+    """One row of the bar-list component, rendered at build time instead of
+    by renderBarList() — same grid markup and classes, so a static card and
+    a JS-driven one look identical. `frac` is the width as a 0..1 share of
+    the row group's own max, not of any budget."""
+    pct = max(0.0, min(1.0, frac)) * 100
+    return (f'<div class="jsbar-row"><div class="jsbar-label">{esc(label)}</div>'
+            f'<div class="jsbar-track"><div class="jsbar-fill" style="width:{pct:.1f}%;'
+            f'background:{color}"></div></div>'
+            f'<div class="jsbar-value">{esc(value_text)}</div></div>')
+
+
 def render_meter_skeleton(cat, label, cadence, editable=True):
     input_html = (f'<span class="target-input-wrap"><span class="prefix">$</span>'
                   f'<input type="number" class="target-input" id="input-{cat}" data-cat="{esc(cat)}" step="1" min="0"></span>'
@@ -923,31 +935,43 @@ def page_dashboard(d, warnings):
     income_vals = [m["income"] for m in d["monthly_series"]]
     expense_vals = [m["expense"] for m in d["monthly_series"]]
 
-    # (b) The bucket balances, on the at-a-glance page. Its own card rather
-    # than a fourth tile in "Year to date": a bucket never resets at a year
-    # boundary, so putting it in a card that now explicitly scopes itself to
-    # one year would reintroduce exactly the mislabelling fixed just above.
-    # Red below zero, green at or above it — the sign is the whole message.
-    bucket_tiles = ""
+    # The buckets on the at-a-glance page, shown as a pair of bars per
+    # category — accumulated against spent — rather than the single
+    # "overdrawn" figure that was here before (user request 2026-11-11). Two
+    # magnitudes of the same unit compared side by side is a bar's job, and
+    # the two amounts are what was asked for; the shortfall is the gap
+    # between the bars, so it needn't also be the headline. Each bar is
+    # directly labelled, so identity never rests on hue alone and the pair
+    # needs no legend. Widths are a share of the larger of the two, which is
+    # why `spent` runs full width whenever it exceeds the accrual.
+    # Still its own card rather than a fourth tile under "Year to date": a
+    # bucket never resets at a year boundary, and that card is now scoped to
+    # one year.
+    bucket_bars = ""
     for c in d["lumpy_cats"]:
         fund = d["lumpy_funds"].get(c)
         if not fund:
             continue
-        label, bal = CATEGORY_LABELS.get(c, c), fund[-1]["balance"]
+        label = CATEGORY_LABELS.get(c, c)
+        accrued, spent = fund[-1]["accrued"], fund[-1]["spent"]
+        scale = max(accrued, spent) or 1
         rate = d["targets"].get(c) or 0
-        bucket_tiles += render_stat_tile_static(
-            f"{label} bucket",
-            money(bal) if bal >= 0 else f"{money(-bal)} overdrawn",
-            "var(--good)" if bal >= 0 else "var(--critical)",
-            sub=f"{money(rate)}/mo since {month_label(fund[0]['month'])}")
-    buckets_html = "" if not bucket_tiles else f"""
+        # The caption names the accrual, not the shortfall: the request was
+        # for the two amounts *instead of* the overdrawn figure, and the gap
+        # between the two bars already shows it. The signed number is a
+        # click away on the Travel tab.
+        bucket_bars += f"""
+    <div class="group-label">{esc(label)} — {esc(money(rate))}/mo since {esc(month_label(fund[0]["month"]))}</div>
+    {render_static_bar("Accumulated", money(accrued), accrued / scale, "var(--series-1)")}
+    {render_static_bar("Spent", money(spent), spent / scale, "var(--series-2)")}"""
+    buckets_html = "" if not bucket_bars else f"""
   <div class="card">
-    <h2>Spending buckets</h2>
-    <div class="card-sub">Lumpy categories are saved up for rather than paced, so each accrues its monthly target
-      into a bucket that spending draws down. Carries across years and may go negative — a negative balance means
-      spending has outrun the accrual cumulatively. Accrual, spending and history on the
-      <a href="buckets.html">Buckets</a> tab.</div>
-    <div class="tiles">{bucket_tiles}</div>
+    <h2>Travel</h2>
+    <div class="card-sub">Lumpy categories are saved up for rather than paced: each accrues its monthly target
+      into a bucket that spending draws down. The bars compare what has accumulated against what has been spent,
+      and the balance carries across years. Month-by-month detail and every charge on the
+      <a href="travel.html">Travel</a> tab.</div>
+    {bucket_bars}
   </div>"""
 
     warnings_html = ""
@@ -1568,7 +1592,7 @@ def page_budget(d):
         state = f"{money(end)} in the bucket" if end >= 0 else f"{money(-end)} overdrawn"
         lumpy_blocks += f"""
     <div class="meter-note" style="margin-top:6px">{esc(label)} bucket: <strong>{esc(state)}</strong> —
-      <a href="buckets.html">accrual, spending and history on the Buckets tab →</a></div>"""
+      <a href="travel.html">accrual, spending and history on the Travel tab →</a></div>"""
 
     lumpy_card = "" if not d["lumpy_discretionary"] else f"""
   <div class="card">
@@ -1667,12 +1691,17 @@ renderBudgetPage(currentMonthIdx);
     return render_shell("Budget", "budget.html", body, d["client_data"], init_js)
 
 
-# ---------------------------------------------------------- page: buckets
+# ----------------------------------------------------------- page: travel
 
-def page_buckets(d):
+def page_travel(d):
     """One section per lumpy category: what has accumulated, what has been
     spent, and the balance between them, broken down by month and listed
     charge by charge.
+
+    Named "Travel" (user request) because travel is the only lumpy category
+    there is. The body still loops over every lumpy category rather than
+    hard-coding travel, so a second one appears here automatically — at
+    which point the tab label is the thing to revisit, not the page.
 
     Its own tab (user decision 2026-11-11, reversing the call made earlier
     the same day): a single meter plus one chart belonged on the Budget
@@ -1785,7 +1814,7 @@ def page_buckets(d):
 
     body = f"""
   <div class="page-header">
-    <h1>Buckets</h1>
+    <h1>Travel</h1>
     <div class="subtitle">Lumpy categories are saved up for, not paced — each accrues its monthly target and
       spending draws it down</div>
   </div>
@@ -1793,7 +1822,7 @@ def page_buckets(d):
 
   <footer class="page-footer">Built from data/budget.db · accrual rates come from config/budgets.yml ·
     balances are derived, never stored</footer>"""
-    return render_shell("Buckets", "buckets.html", body, d["client_data"], "")
+    return render_shell("Travel", "travel.html", body, d["client_data"], "")
 
 
 # ----------------------------------------------------------- page: import
@@ -1940,7 +1969,7 @@ def main():
         "income.html": page_income(d),
         "investments.html": page_investments(d),
         "budget.html": page_budget(d),
-        "buckets.html": page_buckets(d),
+        "travel.html": page_travel(d),
         "import.html": page_import(d),
     }
     for name, html in pages.items():

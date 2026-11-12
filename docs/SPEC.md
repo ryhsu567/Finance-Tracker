@@ -480,8 +480,8 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   buckets become real balances in a domain of their own, alongside Investments.
   The chart heading was `accrued vs drawn down` until the user pointed out it was
   accountant-speak for "in vs out" — now `<label> bucket — balance over time`.
-- **The buckets get their own tab** (user decision 2026-11-11, reversing the call made
-  earlier the same day). The earlier reasoning — the nav is data domains, one meter plus
+- **The buckets get their own tab, named Travel** (user decision 2026-11-11, reversing the
+  call made earlier the same day). The earlier reasoning — the nav is data domains, one meter plus
   one chart does not justify a tab — held only while that was all there was. The ask was to
   see accumulated *and* spent, broken down, and accrual, spend, a monthly table and a
   charge list are a domain's worth of content, while the Budget page is about targets. So:
@@ -500,3 +500,16 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   taxonomy from descriptions is the guessing CLAUDE.md forbids. It needs the
   `transaction_tags`/`envelopes` tables that §11 descoped plus a hand-made trip list. The
   charge list is the stand-in.
+- **Named `Travel`, not `Buckets`, and the Dashboard shows bars instead of a number**
+  (user request 2026-11-11). The tab is `travel.html` and reads *Travel*, because travel is
+  the only lumpy category there is; the page body still loops over every lumpy category
+  rather than hard-coding travel, so a second one would appear there automatically and the
+  *label* is then the thing to revisit, not the page. On the Dashboard, the single
+  "$3,274 overdrawn" tile is replaced by two directly-labelled bars, accumulated against
+  spent, scaled to the larger of the two — comparing two magnitudes of the same unit is a
+  bar's job, each bar carries its own label so identity never rests on hue alone, and the
+  shortfall is the gap between them rather than a figure of its own. The card's caption
+  names the accrual rate for the same reason: the request was for the two amounts *instead
+  of* the signed number, which is still on the Travel tab where the balance is the subject.
+  `render_static_bar()` renders the existing bar-list markup at build time so the static
+  card and the JS-driven ones are indistinguishable.
