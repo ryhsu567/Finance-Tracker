@@ -25,7 +25,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from load import canonical_categories, VALID_KINDS  # noqa: E402
+from load import _a, categories_by_kind, VALID_KINDS  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
@@ -46,7 +46,11 @@ def main():
         raise SystemExit("Input must be a JSON array of transaction objects.")
 
     categories_cfg = yaml.safe_load((CONFIG_DIR / "categories.yml").read_text())
-    valid_categories = canonical_categories(categories_cfg)
+    # Per-kind, not a flat union: an income row filed under an expense
+    # category passed both checks independently until 2026-11-11 and reached
+    # the database. Caught here at staging rather than at load, so a bad row
+    # never enters the queue in the first place.
+    by_kind = categories_by_kind(categories_cfg)
 
     staged = []
     for i, row in enumerate(rows):
@@ -55,11 +59,15 @@ def main():
             raise SystemExit(f"Row {i}: missing required field(s) {sorted(missing)}.")
         if row["kind"] not in VALID_KINDS:
             raise SystemExit(f"Row {i}: invalid kind {row['kind']!r} — must be one of {sorted(VALID_KINDS)}.")
-        if row["category"] not in valid_categories:
+        if row["category"] not in by_kind[row["kind"]]:
+            owners = sorted(k for k, cats in by_kind.items() if row["category"] in cats)
+            detail = (f"is {_a('/'.join(owners))} category, not {_a(row['kind'])} one"
+                      if owners else "is not in config/categories.yml")
             raise SystemExit(
-                f"Row {i}: unmapped category {row['category']!r} "
-                f"({row['description']!r}). Add it to config/categories.yml first "
-                f"or fix the extraction — do not guess."
+                f"Row {i}: category {row['category']!r} {detail} "
+                f"({row['description']!r}). Valid {row['kind']} categories: "
+                f"{sorted(by_kind[row['kind']])}. Fix the kind or the category, "
+                f"or add it to config/categories.yml — do not guess."
             )
         staged.append(dict(
             id=uuid.uuid4().hex[:16],

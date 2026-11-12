@@ -85,6 +85,43 @@ def load_accounts():
     return (yaml.safe_load(path.read_text()) or {}).get("accounts") or {}
 
 
+def load_trips():
+    """config/trips.yml — hand-maintained trip windows (SPEC §7.1). Optional:
+    no file just means no trip grouping, not a broken build.
+
+    Returns (category, trips) where each trip is
+    {name, label, status, windows: [(start, end), ...]}. Overlapping windows
+    between two trips are a build failure, not a tie broken by dict order: a
+    charge inside both would otherwise be filed under whichever trip got
+    checked first, which is the silent-miscategorisation this project exists
+    to prevent (SPEC §6.1)."""
+    path = ROOT / "config" / "trips.yml"
+    if not path.exists():
+        return "travel", []
+    cfg = yaml.safe_load(path.read_text()) or {}
+    category = cfg.get("category", "travel")
+    trips = []
+    for t in (cfg.get("trips") or []):
+        windows = [(str(w[0]), str(w[1])) for w in (t.get("windows") or [])]
+        for start, end in windows:
+            if start > end:
+                raise SystemExit(
+                    f"config/trips.yml: trip {t.get('name')!r} has a window ending "
+                    f"before it starts ({start} to {end}).")
+        trips.append(dict(name=t.get("name"), label=t.get("label") or t.get("name"),
+                          status=t.get("status"), windows=windows))
+    # Pairwise overlap check across trips.
+    flat = [(s_, e_, t["label"]) for t in trips for s_, e_ in t["windows"]]
+    for i, (s1, e1, l1) in enumerate(flat):
+        for s2, e2, l2 in flat[i + 1:]:
+            if l1 != l2 and s1 <= e2 and s2 <= e1:
+                raise SystemExit(
+                    f"config/trips.yml: {l1} ({s1}..{e1}) overlaps {l2} ({s2}..{e2}). "
+                    f"A charge in both would be filed under whichever was checked "
+                    f"first — split the windows so they are unambiguous.")
+    return category, trips
+
+
 def load_data():
     categories_cfg = yaml.safe_load((ROOT / "config" / "categories.yml").read_text())
     budgets_cfg = yaml.safe_load((ROOT / "config" / "budgets.yml").read_text())
@@ -312,6 +349,36 @@ def compute(categories_cfg, targets, txns, accounts_cfg=None):
     # cannot be inferred from dates — the Korea flight was booked 2026-02-09
     # for a trip that happened 2026-04-20/28, so any date clustering would
     # file the booking and the trip as two unrelated events.
+    # Trip grouping (SPEC §7.1, hand-maintained windows in config/trips.yml).
+    # A charge belongs to the trip whose window contains its date; windows
+    # are validated non-overlapping at load, so the match is unambiguous.
+    # Anything in the trip category outside every window is collected as
+    # unassigned and SHOWN as such — never dropped, and never guessed into
+    # the nearest trip. Totals are derived here, not stored.
+    trip_category, trips_cfg = load_trips()
+    trip_groups, trip_unassigned = [], []
+    if trips_cfg:
+        cat_txns = sorted(
+            (t for t in txns if t["kind"] == "expense" and t["category"] == trip_category),
+            key=lambda t: t["date"])
+        claimed = set()
+        for trip in trips_cfg:
+            rows = [t for t in cat_txns
+                    if any(s_ <= t["date"] <= e_ for s_, e_ in trip["windows"])]
+            claimed.update(id(t) for t in rows)
+            trip_groups.append(dict(
+                name=trip["name"], label=trip["label"], status=trip["status"],
+                windows=trip["windows"],
+                first=rows[0]["date"] if rows else None,
+                last=rows[-1]["date"] if rows else None,
+                total=sum(t["amount"] for t in rows),
+                txns=[dict(date=t["date"], description=t["description"], amount=t["amount"])
+                      for t in rows]))
+        trip_unassigned = [
+            dict(date=t["date"], description=t["description"], amount=t["amount"])
+            for t in cat_txns if id(t) not in claimed]
+        trip_groups.sort(key=lambda g: -g["total"])
+
     lumpy_txns = {
         c: sorted(
             (dict(date=t["date"], description=t["description"], amount=t["amount"])
@@ -403,6 +470,8 @@ def compute(categories_cfg, targets, txns, accounts_cfg=None):
     return dict(
         months=months, monthly_series=monthly_series, lumpy_cats=lumpy_cats,
         lumpy_funds=lumpy_funds, lumpy_txns=lumpy_txns,
+        trip_category=trip_category, trip_groups=trip_groups,
+        trip_unassigned=trip_unassigned,
         all_time_expense_ranked=sorted(all_time_cat.items(), key=lambda kv: -kv[1]),
         all_time_income_ranked=sorted(all_time_income_cat.items(), key=lambda kv: -kv[1]),
         all_time_transfer_ranked=sorted(all_time_transfer_cat.items(), key=lambda kv: -kv[1]),
@@ -1697,6 +1766,66 @@ renderBudgetPage(currentMonthIdx);
     return render_shell("Budget", "budget.html", body, d["client_data"], init_js)
 
 
+def render_trips_card(d):
+    """By-trip grouping, from the hand-maintained windows in
+    config/trips.yml. Bars are each trip's share of the largest trip, so the
+    comparison is between trips rather than against a budget — there are no
+    per-trip budgets (§11 keeps tagging and the `envelopes` table descoped).
+
+    Unassigned charges get their own block rather than being folded into a
+    trip or quietly omitted: a travel charge in no window is a question for
+    the trip list, and hiding it would be the silent-drop failure this
+    project exists to prevent."""
+    groups = [g for g in d["trip_groups"] if g["txns"]]
+    empty = [g for g in d["trip_groups"] if not g["txns"]]
+    unassigned = d["trip_unassigned"]
+    if not groups and not unassigned:
+        return ""
+
+    scale = max([g["total"] for g in groups] + [1])
+    bars = ""
+    for g in groups:
+        span = (f"{g['first']} → {g['last']}" if g["first"] != g["last"] else g["first"])
+        tag = " · ongoing" if g["status"] == "ongoing" else ""
+        bars += f"""
+    <div class="group-label">{esc(g["label"])} — {esc(span)}{esc(tag)} ·
+      {len(g["txns"])} charge{'' if len(g["txns"]) == 1 else 's'}</div>
+    {render_static_bar(g["label"], money(g["total"]), g["total"] / scale, "var(--series-2)")}"""
+
+    unassigned_html = ""
+    if unassigned:
+        rows = "".join(f"""<tr>
+      <td class="f-date">{esc(t['date'])}</td>
+      <td>{esc(t['description'])}</td>
+      <td class="num">{esc(money(t['amount']))}</td>
+    </tr>""" for t in unassigned)
+        total = sum(t["amount"] for t in unassigned)
+        unassigned_html = f"""
+    <div class="group-label">Unassigned — {esc(money(total))} across
+      {len(unassigned)} charge{'' if len(unassigned) == 1 else 's'}</div>
+    <div class="card-sub">In no trip window in config/trips.yml. Not guessed into the nearest trip and not
+      dropped — add a window (or a trip) to claim them.</div>
+    <table class="data-table">
+      <thead><tr><th>Date</th><th>Description</th><th class="num">Amount</th></tr></thead>
+      <tbody>{rows}</tbody>
+    </table>"""
+
+    empty_note = "" if not empty else f"""
+    <div class="card-sub" style="margin-top:12px">No charges yet for
+      {and_list([g["label"] for g in empty])} — the window is defined but nothing falls in it.</div>"""
+
+    return f"""
+  <div class="card">
+    <h2>By trip</h2>
+    <div class="card-sub">Hand-maintained windows from <code>config/trips.yml</code>, because a trip is not a
+      date range the build can infer: a booking sits outside the trip it pays for, so each trip lists its own
+      windows. Bars compare trips against the largest, not against a budget — there are no per-trip budgets.</div>
+    {bars}
+    {unassigned_html}
+    {empty_note}
+  </div>"""
+
+
 # ----------------------------------------------------------- page: travel
 
 def page_travel(d):
@@ -1759,6 +1888,7 @@ def page_travel(d):
     </table>
   </div>"""
 
+        trips_card = render_trips_card(d) if c == d["trip_category"] else ""
         sections += f"""
   <div class="card">
     <h2>{esc(label)} bucket</h2>
@@ -1808,6 +1938,7 @@ def page_travel(d):
       <tbody>{rows}</tbody>
     </table>
   </div>
+{trips_card}
 {txn_table}"""
 
     if not sections:

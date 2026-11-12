@@ -215,9 +215,16 @@ comment — don't bury it in a divisor.
    PhotoBooth, Clipper, Lyft Ride) read as local Bay Area spending around Valentine's, not
    Korea — the actual Korea trip rows are the April ones (Olive Young, Musinsa, Uniqlo
    Drop, Convenience Stores, Korea Misc.). Needs a per-transaction trip assignment, by
-   hand or confirmed row by row; it is not derivable. The Buckets tab lists every charge
-   with its date and description instead, so trips stay legible without the build
-   asserting a boundary it cannot know.
+   hand or confirmed row by row; it is not derivable.
+   **Answered 2026-11-11** — the user supplied the list, and it is now
+   `config/trips.yml`: SF #1 (1/17–1/20), SF #2 (1/21–1/25 + 2/12–2/16), Korea (2/9 +
+   4/20–4/28), Santa Rosa (5/26–7/26), Taiwan (11/7, ongoing). Note the shape that proves
+   the point above: SF #2 and Korea each need *two* windows, one for the booking and one for
+   the trip. Windows are validated non-overlapping at build time. Two charges are
+   deliberately unassigned — `Flight to NYC from SF` (3/25, $139.40) and `NYC Flights`
+   (10/28, $337.00) — because no NYC trip was given; they show under Unassigned on the
+   Travel tab rather than being guessed into a neighbour. Trip totals plus unassigned come
+   to $4,923.75, i.e. all of travel, so nothing is dropped.
 2. **Which budget scenario is live?** The tracker uses Scenario A (Rent $1,900, Gym $280,
    no Insurance). Scenario B is a different shape — Rent $2,000, adds Insurance, 401k Roth,
    Entertainment; drops Flights, Gym, Travel. Proposal, post-move plan, or dead?
@@ -522,8 +529,13 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   The call was a category of its own under `kind: income`. No raw-label mapping: rebates
   arrive through the Import tab, not the Income sheet. Adding it meant touching
   `INCOME_LABELS` as well as `categories.yml`, because `income_categories_json` is built
-  from that dict's keys — a category missing from it is in the data but renders nowhere on
-  the Income page. That dict now says so in a comment.
+  from that dict's keys. **Correction, same day:** that was first recorded here as "renders
+  nowhere on the Income page", which is wrong. `incomeCategories` is consumed in exactly one
+  place (`build_dashboard.py`, the Import tab's `categoryOptionsFor`), so the real
+  consequence of a missing label is that the category cannot be *selected* when approving a
+  staged row; the Income page would still list it, labelled with the bare slug, because
+  `labelFor()` falls back to the slug. Adding the label was right, the stated reason was
+  not. Commit 3602927's message carries the same error.
 - **`canonical_categories()` does not check category against kind** (found 2026-11-11, not
   fixed, offered). `scripts/load.py:124` flattens all four kinds into one set, so
   `kind=income` with `category=other` — an expense category — validates clean and lands in
@@ -532,3 +544,25 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   rebate under `other` "for now"; the row was not staged, and a `rebate` category was added
   instead. A kind-aware check belongs in `canonical_categories()` or beside the `VALID_KINDS`
   check, and is squarely in the spirit of §6.1's fail-loudly rule.
+- **Category validation is kind-aware** (fixed 2026-11-11, after being logged as a known
+  hole the same day). `canonical_categories()` returned the union of all four kinds, and
+  `kind`/`category` were checked independently, so `kind=income` with `category=groceries`
+  satisfied both halves and reached the database — where the amount landed in the month's
+  income total *and* its `incomeByCat`, rendering as an income category labelled with the
+  bare slug. New `categories_by_kind()` returns `{kind: {slug}}`, the shape the config
+  actually describes, and `check_category_for_kind()` raises with the offending category's
+  real kind and the valid list for the one claimed. Wired into all three entry points:
+  `stage_import.py` (so a bad row never enters the queue), `load_approved_imports()` and
+  `import_server.py`'s approve handler. `canonical_categories()` is kept for callers that
+  only need "is this a slug at all", with a docstring saying not to validate rows with it.
+  The spreadsheet path was never affected — it maps per sheet through
+  `map_expense_category`/`map_income_category`.
+- **Trip grouping ships, from hand-maintained windows** (2026-11-11). `config/trips.yml`
+  holds the list; `load_trips()` reads it, rejects a window that ends before it starts, and
+  **fails the build on any overlap between two trips** rather than filing a charge under
+  whichever was checked first. The Travel tab gains a *By trip* card: one bar per trip,
+  scaled against the largest trip rather than a budget (there are no per-trip budgets —
+  tagging and the `envelopes` table stay descoped, so this is display grouping only and
+  nothing is written to the database). Unassigned charges get their own labelled block with
+  a table, never folded into a trip and never omitted. Current split: Korea $2,281,
+  Taiwan $950, SF #2 $704, Santa Rosa $379, SF #1 $134, unassigned $476.

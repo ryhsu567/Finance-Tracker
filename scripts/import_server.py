@@ -30,7 +30,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from load import canonical_categories, VALID_KINDS  # noqa: E402
+from load import categories_by_kind, VALID_KINDS  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
@@ -126,8 +126,12 @@ class Handler(SimpleHTTPRequestHandler):
         if row["kind"] not in VALID_KINDS:
             return self._json(400, {"error": f"invalid kind {row['kind']!r}"})
         categories_cfg = yaml.safe_load((CONFIG_DIR / "categories.yml").read_text())
-        if row["category"] not in canonical_categories(categories_cfg):
-            return self._json(400, {"error": f"unmapped category {row['category']!r}"})
+        # Per-kind: a flat check here would let an approval file income
+        # under an expense category (see load.py's categories_by_kind).
+        by_kind = categories_by_kind(categories_cfg)
+        if row["category"] not in by_kind.get(row["kind"], set()):
+            return self._json(400, {"error": (
+                f"category {row['category']!r} is not a valid {row['kind']} category")})
         try:
             row["amount"] = abs(float(row["amount"]))
         except (TypeError, ValueError):

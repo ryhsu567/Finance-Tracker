@@ -1,0 +1,60 @@
+# Trip definitions — hand-maintained, and necessarily so.
+#
+# This answers SPEC §7.1, which asked for trip boundaries and assumed they
+# could be "assigned by date window rather than by hand". A single window per
+# trip cannot do it: a booking does not sit inside the trip it pays for. The
+# Korea flight was bought 2026-02-09 for a trip that happened 2026-04-20/28,
+# so Korea needs two windows — one for the booking date, one for the trip
+# itself. Given by the user 2026-11-11.
+#
+# Rules:
+#   - `windows` is a list of [start, end] inclusive date pairs. Several per
+#     trip is normal: bookings cluster apart from the trip.
+#   - A single-day window is written with the same date twice.
+#   - Windows must not overlap between trips. build_dashboard.py FAILS the
+#     build if they do, rather than silently filing a charge under whichever
+#     trip it checked first (SPEC §6.1 — fail loudly).
+#   - Only `travel` rows are assigned. Anything in that category outside
+#     every window is reported as Unassigned on the Travel tab, never
+#     dropped — an unassigned charge is a question to answer, not a gap to
+#     hide.
+#
+# Scope: this groups charges for *display*. It deliberately does not revive
+# the `transaction_tags`/`envelopes` tables (SPEC §11 descoped tagging), so
+# there are no per-trip budgets and nothing is written to the database.
+
+category: travel
+
+trips:
+  - name: sf_1
+    label: "SF #1"
+    windows:
+      - ["2026-01-17", "2026-01-20"]
+
+  - name: sf_2
+    label: "SF #2"
+    # Flights booked 1/21 and 1/25; the trip itself is the February window.
+    windows:
+      - ["2026-01-21", "2026-01-25"]
+      - ["2026-02-12", "2026-02-16"]
+
+  - name: korea
+    label: Korea
+    # 2/9 is the flight booking; 4/20-4/28 is the trip.
+    windows:
+      - ["2026-02-09", "2026-02-09"]
+      - ["2026-04-20", "2026-04-28"]
+
+  - name: santa_rosa
+    label: Santa Rosa
+    # Hotel booked 5/26 for the trip at the end of July; the user gave this
+    # as one continuous window rather than splitting booking from trip.
+    windows:
+      - ["2026-05-26", "2026-07-26"]
+
+  - name: taiwan
+    label: Taiwan
+    status: ongoing
+    # Flights booked 11/7; the trip has not happened yet.
+    windows:
+      - ["2026-11-07", "2026-11-07"]

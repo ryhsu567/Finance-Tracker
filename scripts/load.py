@@ -121,13 +121,58 @@ def map_income_category(raw_category, description, categories_cfg, *, sheet, row
     return category, kind
 
 
+def categories_by_kind(categories_cfg):
+    """config/categories.yml's taxonomy as {kind: {slug, ...}} — the shape
+    the file actually describes, since a category belongs to exactly one
+    kind. Expense categories are nested a level deeper (by budget group);
+    the others are flat.
+
+    Validation must go through this, not through the union below: `kind` and
+    `category` were checked independently until 2026-11-11, which accepted
+    `kind=income` with `category=groceries` — an expense category — and let
+    it reach the database, where the amount landed in both the month's
+    income total and its incomeByCat breakdown, rendering as an income
+    category labelled with the bare slug. Both halves were individually
+    valid, so nothing failed. See SPEC §6.1: the point is to fail loudly."""
+    kinds = {"expense": set()}
+    for group in categories_cfg["expense"].values():
+        kinds["expense"].update(group.keys())
+    for kind in ("income", "transfer", "investment"):
+        kinds[kind] = set(categories_cfg.get(kind, {}) or {})
+    return kinds
+
+
+def _a(word):
+    """"an expense" / "a transfer" — so a generated message reads as English."""
+    return ("an " if word[:1].lower() in "aeiou" else "a ") + word
+
+
+def check_category_for_kind(kind, category, categories_cfg, *, where):
+    """Raise unless `category` is a real category *of that kind*. `where` is
+    pasted into the message so the caller can say which row and file."""
+    by_kind = categories_by_kind(categories_cfg)
+    if kind not in by_kind:
+        raise LoaderError(f"{where}: invalid kind {kind!r} — must be one of {sorted(by_kind)}.")
+    if category in by_kind[kind]:
+        return
+    owners = sorted(k for k, cats in by_kind.items() if category in cats)
+    if owners:
+        raise LoaderError(
+            f"{where}: category {category!r} is {_a('/'.join(owners))} category, "
+            f"not {_a(kind)} one. Valid {kind} categories: {sorted(by_kind[kind])}. "
+            f"Fix the kind or the category — do not guess."
+        )
+    raise LoaderError(
+        f"{where}: unmapped category {category!r}. Add it to config/categories.yml "
+        f"under {kind!r} first — do not guess."
+    )
+
+
 def canonical_categories(categories_cfg):
-    """Flatten config/categories.yml's nested taxonomy into the flat set of
-    valid canonical category slugs — expense groups are nested by budget
-    group, income/transfer are not. Used to validate already-mapped rows
-    (Import tab approvals) — distinct from the raw-label maps in
-    map_expense_category/map_income_category, which translate *raw* sheet
-    labels into these same canonical slugs."""
+    """The union of every kind's categories. Retained for callers that only
+    need "is this a category slug at all"; anything validating a row must
+    use categories_by_kind/check_category_for_kind instead, or it will
+    accept an income row filed under an expense category."""
     cats = set()
     for group in categories_cfg["expense"].values():
         cats.update(group.keys())
@@ -158,12 +203,9 @@ def load_approved_imports(categories_cfg):
                 f"Import row {row_num} has invalid kind {row['kind']!r} "
                 f"(approved.jsonl) — must be one of {sorted(VALID_KINDS)}."
             )
-        if row["category"] not in valid_categories:
-            raise LoaderError(
-                f"Import row {row_num} has unmapped category {row['category']!r} "
-                f"(approved.jsonl, {row.get('description')!r}). "
-                f"Add it to config/categories.yml first — do not guess."
-            )
+        check_category_for_kind(
+            row["kind"], row["category"], categories_cfg,
+            where=f"Import row {row_num} (approved.jsonl, {row.get('description')!r})")
         transactions.append(dict(
             id=row.get("id") or transaction_id("import", "approved", row_num),
             date=row["date"],
