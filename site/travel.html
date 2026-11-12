@@ -135,6 +135,47 @@
   </div>
 
   <div class="card">
+    <h2>By trip</h2>
+    <div class="card-sub">Hand-maintained windows from <code>config/trips.yml</code>, because a trip is not a
+      date range the build can infer: a booking sits outside the trip it pays for, so each trip lists its own
+      windows. Bars compare trips against the largest, not against a budget — there are no per-trip budgets.</div>
+    
+    <div class="group-label">Korea — 2026-02-09 → 2026-04-28 ·
+      15 charges</div>
+    <div class="jsbar-row"><div class="jsbar-label">Korea</div><div class="jsbar-track"><div class="jsbar-fill" style="width:100.0%;background:var(--series-2)"></div></div><div class="jsbar-value">$2,281</div></div>
+    <div class="group-label">Taiwan — 2026-11-07 · ongoing ·
+      1 charge</div>
+    <div class="jsbar-row"><div class="jsbar-label">Taiwan</div><div class="jsbar-track"><div class="jsbar-fill" style="width:41.7%;background:var(--series-2)"></div></div><div class="jsbar-value">$950</div></div>
+    <div class="group-label">SF #2 — 2026-01-21 → 2026-02-16 ·
+      11 charges</div>
+    <div class="jsbar-row"><div class="jsbar-label">SF #2</div><div class="jsbar-track"><div class="jsbar-fill" style="width:30.9%;background:var(--series-2)"></div></div><div class="jsbar-value">$704</div></div>
+    <div class="group-label">Santa Rosa — 2026-05-26 → 2026-07-26 ·
+      4 charges</div>
+    <div class="jsbar-row"><div class="jsbar-label">Santa Rosa</div><div class="jsbar-track"><div class="jsbar-fill" style="width:16.6%;background:var(--series-2)"></div></div><div class="jsbar-value">$379</div></div>
+    <div class="group-label">SF #1 — 2026-01-17 → 2026-01-20 ·
+      6 charges</div>
+    <div class="jsbar-row"><div class="jsbar-label">SF #1</div><div class="jsbar-track"><div class="jsbar-fill" style="width:5.9%;background:var(--series-2)"></div></div><div class="jsbar-value">$134</div></div>
+    
+    <div class="group-label">Unassigned — $476 across
+      2 charges</div>
+    <div class="card-sub">In no trip window in config/trips.yml. Not guessed into the nearest trip and not
+      dropped — add a window (or a trip) to claim them.</div>
+    <table class="data-table">
+      <thead><tr><th>Date</th><th>Description</th><th class="num">Amount</th></tr></thead>
+      <tbody><tr>
+      <td class="f-date">2026-03-25</td>
+      <td>Flight to NYC from SF</td>
+      <td class="num">$139</td>
+    </tr><tr>
+      <td class="f-date">2026-10-28</td>
+      <td>NYC Flights</td>
+      <td class="num">$337</td>
+    </tr></tbody>
+    </table>
+    
+  </div>
+
+  <div class="card">
     <h2>Every travel charge — 39 of them</h2>
     <div class="card-sub">Newest first. No trip grouping: a booking and the trip it pays for are months apart
       (the Korea flight was booked Feb 2026, the trip was Apr 2026), so there is
