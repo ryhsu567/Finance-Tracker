@@ -23,13 +23,22 @@
 # the `transaction_tags`/`envelopes` tables (SPEC §11 descoped tagging), so
 # there are no per-trip budgets and nothing is written to the database.
 
+# Known unassigned: "NYC Flights" (2026-10-28, $337.00) belongs to no trip
+# here yet — the user is still working out what it pays for (2026-11-14). It
+# shows in the Travel tab's Unassigned block on purpose; do not park it in a
+# neighbouring window to make the block empty.
+
 category: travel
 
 trips:
   - name: sf_1
     label: "SF #1"
+    # The 3/25 window is the "Flight to NYC from SF" booking ($139.40),
+    # assigned here by the user 2026-11-14. It sits months after the trip
+    # window, which is the usual booking-outside-the-trip case.
     windows:
       - ["2026-01-17", "2026-01-20"]
+      - ["2026-03-25", "2026-03-25"]
 
   - name: sf_2
     label: "SF #2"
@@ -51,15 +60,6 @@ trips:
     # as one continuous window rather than splitting booking from trip.
     windows:
       - ["2026-05-26", "2026-07-26"]
-
-  - name: nyc
-    label: NYC
-    # 3/25 is the "Flight to NYC from SF" booking. The trip's own dates are
-    # not known yet, so this window covers the booking only — the $337.00
-    # "NYC Flights" charge on 10/28 is deliberately NOT in it and stays
-    # Unassigned until the user resolves what it belongs to (2026-11-14).
-    windows:
-      - ["2026-03-25", "2026-03-25"]
 
   - name: taiwan
     label: Taiwan
