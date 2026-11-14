@@ -52,6 +52,15 @@ trips:
     windows:
       - ["2026-05-26", "2026-07-26"]
 
+  - name: nyc
+    label: NYC
+    # 3/25 is the "Flight to NYC from SF" booking. The trip's own dates are
+    # not known yet, so this window covers the booking only — the $337.00
+    # "NYC Flights" charge on 10/28 is deliberately NOT in it and stays
+    # Unassigned until the user resolves what it belongs to (2026-11-14).
+    windows:
+      - ["2026-03-25", "2026-03-25"]
+
   - name: taiwan
     label: Taiwan
     status: ongoing
