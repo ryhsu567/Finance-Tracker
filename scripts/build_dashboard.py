@@ -1804,7 +1804,8 @@ def render_trips_card(d):
     <div class="group-label">Unassigned — {esc(money(total))} across
       {len(unassigned)} charge{'' if len(unassigned) == 1 else 's'}</div>
     <div class="card-sub">In no trip window in config/trips.yml. Not guessed into the nearest trip and not
-      dropped — add a window (or a trip) to claim them.</div>
+      dropped — add a window (or a trip) to claim them. Each one stays an open item until it is resolved:
+      SPEC §7 question 7 tracks the current ones.</div>
     <table class="data-table">
       <thead><tr><th>Date</th><th>Description</th><th class="num">Amount</th></tr></thead>
       <tbody>{rows}</tbody>

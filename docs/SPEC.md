@@ -217,14 +217,14 @@ comment — don't bury it in a divisor.
    Drop, Convenience Stores, Korea Misc.). Needs a per-transaction trip assignment, by
    hand or confirmed row by row; it is not derivable.
    **Answered 2026-11-11** — the user supplied the list, and it is now
-   `config/trips.yml`: SF #1 (1/17–1/20), SF #2 (1/21–1/25 + 2/12–2/16), Korea (2/9 +
-   4/20–4/28), Santa Rosa (5/26–7/26), Taiwan (11/7, ongoing). Note the shape that proves
-   the point above: SF #2 and Korea each need *two* windows, one for the booking and one for
-   the trip. Windows are validated non-overlapping at build time. Two charges are
-   deliberately unassigned — `Flight to NYC from SF` (3/25, $139.40) and `NYC Flights`
-   (10/28, $337.00) — because no NYC trip was given; they show under Unassigned on the
-   Travel tab rather than being guessed into a neighbour. Trip totals plus unassigned come
-   to $4,923.75, i.e. all of travel, so nothing is dropped.
+   `config/trips.yml`: SF #1 (1/17–1/20 + 3/25), SF #2 (1/21–1/25 + 2/12–2/16), Korea
+   (2/9 + 4/20–4/28), Santa Rosa (5/26–7/26), Taiwan (11/7–11/10, ongoing). Note the
+   shape that proves the point above: SF #1, SF #2 and Korea each need *two* windows, one
+   for the booking and one for the trip. Windows are validated non-overlapping at build
+   time. Subsequent assignments: `Taiwan flights` 11/10 ($273.50) to Taiwan, and
+   `Flight to NYC from SF` (3/25, $139.40) to SF #1 (user, 2026-11-14 — first filed under
+   a trip of its own, then moved). One charge remains unassigned; see question 7. Trip
+   totals plus unassigned come to $5,197.25, i.e. all of travel, so nothing is dropped.
 2. **Which budget scenario is live?** The tracker uses Scenario A (Rent $1,900, Gym $280,
    no Insurance). Scenario B is a different shape — Rent $2,000, adds Insurance, 401k Roth,
    Entertainment; drops Flights, Gym, Travel. Proposal, post-move plan, or dead?
@@ -238,6 +238,13 @@ comment — don't bury it in a divisor.
    from Expenses/Income/Summary. Confirm paths.
 6. ~~**Gym** — $280/mo budgeted, actuals swing $298 → $13. Membership plus classes, or lumpy?~~
    Resolved (§11): `lumpy`.
+7. **`NYC Flights`, 2026-10-28, $337.00 — which trip?** The last travel charge with no
+   trip. The user is working out what it pays for (said 2026-11-14); until they say, it
+   stays in the Travel tab's Unassigned block *on purpose*. Do not park it in a
+   neighbouring trip's window to make that block empty — an unassigned charge is a
+   question to answer, not a gap to hide (§6.1). Resolving it means either adding a trip
+   with a window covering 10/28, or adding that date as a booking window on an existing
+   trip, as SF #1 and Korea already do. The same note heads `config/trips.yml`.
 
 ---
 
