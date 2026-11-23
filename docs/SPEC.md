@@ -224,7 +224,7 @@ comment — don't bury it in a divisor.
    time. Subsequent assignments: `Taiwan flights` 11/10 ($273.50) to Taiwan, and
    `Flight to NYC from SF` (3/25, $139.40) to SF #1 (user, 2026-11-14 — first filed under
    a trip of its own, then moved). One charge remains unassigned; see question 7. Trip
-   totals plus unassigned come to $5,197.25, i.e. all of travel, so nothing is dropped.
+   totals plus unassigned come to $5,121.25, i.e. all of travel, so nothing is dropped.
 2. **Which budget scenario is live?** The tracker uses Scenario A (Rent $1,900, Gym $280,
    no Insurance). Scenario B is a different shape — Rent $2,000, adds Insurance, 401k Roth,
    Entertainment; drops Flights, Gym, Travel. Proposal, post-move plan, or dead?
@@ -238,7 +238,7 @@ comment — don't bury it in a divisor.
    from Expenses/Income/Summary. Confirm paths.
 6. ~~**Gym** — $280/mo budgeted, actuals swing $298 → $13. Membership plus classes, or lumpy?~~
    Resolved (§11): `lumpy`.
-7. **`NYC Flights`, 2026-10-28, $337.00 — which trip?** The last travel charge with no
+7. **`NYC Flights`, 2026-10-28, $261.00 — which trip?** The last travel charge with no
    trip. The user is working out what it pays for (said 2026-11-14); until they say, it
    stays in the Travel tab's Unassigned block *on purpose*. Do not park it in a
    neighbouring trip's window to make that block empty — an unassigned charge is a
@@ -397,7 +397,7 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   ink and underlying in the expense accent** — context recessive, the figure you read in the
   accent, the same contract `render_sparkline()` already documented. Total stays on the chart
   deliberately: nothing is hidden, the eye just has a line worth following. Why it was
-  needed: travel ran 562 / 1,237 / 139 / 1,319 / 244 / 0 / 135 / 0 / 0 / 337 / 950 across
+  needed: travel ran 562 / 1,237 / 139 / 1,319 / 244 / 0 / 135 / 0 / 0 / 261 / 950 across
   Jan–Nov, so the total swung to $5,027 in April and $2,639 in September mostly on flight
   booking dates; ex-travel is a readable 2,423 → 2,755 → 3,726 → 3,708 → 3,136 → 4,363 →
   3,155 → 2,969 → 2,639 → 2,808. With no lumpy category the two lines would coincide, so the
@@ -422,7 +422,7 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   reports the bucket balance in dollars (`accrued − spent`), with a per-category chart on
   the Budget page plotting that balance over time: it climbs through quiet months and drops
   on the day something is booked. Travel's 2026 line falls on the Feb Korea flight and the
-  April trip, climbs Jun–Sep untouched, then drops $337 in October and $950 on the November
+  April trip, climbs Jun–Sep untouched, then drops $261 in October and $950 on the November
   Taiwan booking. Derived in `compute()`/`fund_for()` and mirrored in `app.js`'s
   `categoryResult()`; nothing is stored. The meter bar now fills as the bucket *drains*, so
   a full bar means empty rather than a blown budget — the dollar figure in the note is the
@@ -430,15 +430,16 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
 - **The accrual starts at the first month in the ledger, carrying all of 2026** (asked,
   decided 2026-11-11). The alternatives were opening a fresh $0 bucket going forward, or
   seeding an opening balance for what had been saved before January. Carrying the year was
-  chosen with the consequence stated: the bucket never goes positive, ending **$3,274
-  overdrawn** ($4,923.75 spent against $1,650 accrued over 11 months). It is a deficit
-  tracker for 2026 rather than a bucket with anything in it — but the month-to-month
-  *slopes* still read correctly, and the overdraw is a true figure, which is the point.
+  chosen with the consequence stated: the bucket never goes positive, ending **$3,471
+  overdrawn** ($5,121.25 spent against $1,650 accrued over 11 months, as of 2026-11-17).
+  It is a deficit tracker for 2026 rather than a bucket with anything in it — but the
+  month-to-month *slopes* still read correctly, and the overdraw is a true figure, which
+  is the point.
   The $150/mo rate is unchanged, consistent with the 2026-11-10 decision above; at
-  $1,800/yr against a ~$448/mo actual, a single $950 booking is 6.3 months of accrual, so
+  $1,800/yr against a ~$466/mo actual, a single $950 booking is 6.3 months of accrual, so
   the fund will go negative again next year unless travel actually slows.
 - **Travel still mixes bookings with in-trip daily spend** (noted 2026-11-11, not acted on).
-  The 2026 travel rows are partly true lumps (Korea $961.53, Taiwan $950.00, NYC $337.00)
+  The 2026 travel rows are partly true lumps (Korea $961.53, Taiwan $950.00, NYC $261.00)
   and partly a second life lived abroad — April's $1,319.33 is Uniqlo, Musinsa, Olive Young,
   a haircut, convenience stores and malatang, i.e. `shopping` and `eating_out` that happened
   on a trip. Trip tagging was descoped (§11), so there is no axis to separate them on. This
@@ -573,3 +574,30 @@ behind an upload endpoint, rather than duplicated between a CLI path and a web p
   nothing is written to the database). Unassigned charges get their own labelled block with
   a table, never folded into a trip and never omitted. Current split: Korea $2,281,
   Taiwan $950, SF #2 $704, Santa Rosa $379, SF #1 $134, unassigned $476.
+- **Lumpy categories are off the Expenses tab entirely** (2026-11-16). Travel no longer
+  appears in any figure on that page — not the subtitle total, the cumulative-vs-pace
+  line, biggest purchases, the per-month category bars, the monthly trend, the all-time
+  ranking, or the transaction list and its search. It is one-off spend, saved up for
+  across months and then paid in a lump, so a single booking distorted the trend line,
+  the category ranking and the biggest-purchases list at the same time; it is read on its
+  own terms on the Travel tab. Two consequences worth stating: the Expenses page's
+  "all-time" figure is now $32,479 (everyday) where the ledger's expense total is
+  $37,676, and that page's trend is a single series, because `underlying` *is* its
+  expense total now — the old Total-vs-Underlying pair would have put another page's
+  number on this one's chart. The paced-discretionary target in the cumulative chart's
+  legend dropped from $1,450 to $1,300/mo as a side effect: it had been summing all of
+  `discretionary_order`, travel's $150 sinking-fund rate included, while the line beside
+  it already excluded travel — the chart and its own target disagreed. Both now use the
+  same non-lumpy set `poolResult()` pools.
+- **The Dashboard carries the one combined view** (2026-11-16, same decision). Since
+  Expenses is everyday-only and Travel is travel-only, neither answers "what actually
+  left the account this month" — a new *Everyday spending vs travel* card does, as
+  stacked monthly bars (segments sum to the real outflow, travel reads as a band absent
+  in most months: $5,121 of $37,625 all-time, 14%, landing in 8 of 11 months). Everyday
+  keeps the expense accent; travel takes `--series-3`, the adjacency the Investments
+  stack already ships, re-validated for this pair (deutan ΔE 9.2 light / 9.4 dark).
+  `--series-4` is ruled out for the reason it is there: yellow beside orange fails CVD
+  separation. Implementation note: `window.DATA` still ships every transaction to every
+  page and the exclusion is a client-side filter on the Expenses page alone, so the
+  Dashboard can add the two back together from one payload rather than being sent a
+  pre-split one.

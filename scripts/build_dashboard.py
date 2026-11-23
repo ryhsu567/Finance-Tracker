@@ -465,6 +465,12 @@ def compute(categories_cfg, targets, txns, accounts_cfg=None):
         investmentCategories=investment_categories_json,
         byMonth=by_month,
         order=dict(baseline=baseline_order, discretionary=discretionary_order),
+        # The Expenses page drops these categories from every figure it shows
+        # (user decision 2026-11-16) — a lumpy category is one-off spend, and
+        # the Travel tab is where it is read. Shipped as a list rather than
+        # baked into byMonth so the Dashboard can still combine the two: the
+        # client filters a full payload, it is not sent a pre-split one.
+        lumpyCats=lumpy_cats,
     )
 
     return dict(
@@ -473,6 +479,15 @@ def compute(categories_cfg, targets, txns, accounts_cfg=None):
         trip_category=trip_category, trip_groups=trip_groups,
         trip_unassigned=trip_unassigned,
         all_time_expense_ranked=sorted(all_time_cat.items(), key=lambda kv: -kv[1]),
+        # Same totals with the lumpy categories dropped — what the Expenses
+        # page shows now that travel lives on its own tab. Derived here next
+        # to the full ranking rather than subtracted in the page, so the two
+        # can never disagree about what "everyday" means.
+        all_time_everyday_ranked=sorted(
+            ((c, v) for c, v in all_time_cat.items() if c not in set(lumpy_cats)),
+            key=lambda kv: -kv[1]),
+        total_everyday_all_time=sum(v for c, v in all_time_cat.items() if c not in set(lumpy_cats)),
+        total_lumpy_all_time=sum(v for c, v in all_time_cat.items() if c in set(lumpy_cats)),
         all_time_income_ranked=sorted(all_time_income_cat.items(), key=lambda kv: -kv[1]),
         all_time_transfer_ranked=sorted(all_time_transfer_cat.items(), key=lambda kv: -kv[1]),
         all_time_investment_ranked=sorted(all_time_investment_cat.items(), key=lambda kv: -kv[1]),
@@ -756,7 +771,9 @@ def render_legend(items, dashed_last=False):
     return f'<div class="legend">{"".join(keys)}</div>'
 
 
-def render_stacked_bar_svg(chart_id, month_labels, keys, values_by_month, colors, value_fmt=money):
+def render_stacked_bar_svg(chart_id, month_labels, keys, values_by_month, colors, value_fmt=money,
+                            key_labels=None, empty_text="No contributions recorded yet.",
+                            zero_text="No contributions"):
     """Stacked bars: magnitude per month *and* its composition, which a line
     can't carry. values_by_month is one {key: amount} per month, keys in a
     fixed order so an account keeps its hue and its slot when a month is
@@ -766,10 +783,16 @@ def render_stacked_bar_svg(chart_id, month_labels, keys, values_by_month, colors
     outermost segment only (the stack is anchored to the baseline), one
     hit target per column rather than per segment — a $40 crypto sliver is
     too thin to hover, and the useful tooltip is the whole month's split."""
+    # `keys` need not be categories: the Dashboard stacks derived buckets
+    # ("everyday" vs "lumpy"), so a caller can name them with `key_labels`
+    # rather than going through label_for(), which prints the raw key.
+    def name_of(k):
+        return (key_labels or {}).get(k) or label_for(k)
+
     n = len(month_labels)
     totals = [sum(d.get(k, 0.0) for k in keys) for d in values_by_month]
     if not n or not any(totals):
-        return '<p class="card-sub">No contributions recorded yet.</p>'
+        return f'<p class="card-sub">{esc(empty_text)}</p>'
 
     W, H = 760, 260
     PAD_L, PAD_R, PAD_T, PAD_B = 52, 24, 22, 28
@@ -825,9 +848,9 @@ def render_stacked_bar_svg(chart_id, month_labels, keys, values_by_month, colors
         if totals[i] > 0 and i in labelled:
             labels.append(f'<text x="{x_at(i):.1f}" y="{cursor-6:.1f}" text-anchor="middle" '
                           f'class="end-label">{esc(value_fmt(totals[i]))}</text>')
-        rows = [[label_for(k), value_fmt(d.get(k, 0.0)), colors[k]] for k in keys if d.get(k, 0.0) > 0]
+        rows = [[name_of(k), value_fmt(d.get(k, 0.0)), colors[k]] for k in keys if d.get(k, 0.0) > 0]
         rows.append(["Total", value_fmt(totals[i]), None] if totals[i] > 0
-                     else ["No contributions", "", None])
+                     else [zero_text, "", None])
         hits.append(
             f'<rect class="hit-target" data-tooltip-title="{esc(month_labels[i])}" '
             f'data-tooltip-rows="{esc(json.dumps(rows))}" data-month-idx="{i}" '
@@ -1042,11 +1065,47 @@ def page_dashboard(d, warnings):
     buckets_html = "" if not bucket_bars else f"""
   <div class="card">
     <h2>Travel</h2>
-    <div class="card-sub">Lumpy categories are saved up for rather than paced: each accrues its monthly target
-      into a bucket that spending draws down. The bars compare what has accumulated against what has been spent,
-      and the balance carries across years. Month-by-month detail and every charge on the
-      <a href="travel.html">Travel</a> tab.</div>
     {bucket_bars}
+  </div>"""
+
+    # The one view that puts the two halves back together (user decision
+    # 2026-11-16). The Expenses tab is everyday spend only and the Travel tab
+    # is travel only, so neither one answers "what actually left the account
+    # this month" — this does, and it is the only place that figure appears
+    # broken down. Stacked rather than two lines because the question is a
+    # total *and* its composition at once: the segments sum to the real
+    # outflow, and travel reads as a band that is simply absent in most
+    # months, which is what lumpy means.
+    #
+    # Everyday keeps the expense accent it wears on its own tab; travel takes
+    # series-3. That adjacency is the one the Investments stack already ships
+    # (emergency fund beside crypto) and it was re-checked for this pair with
+    # the dataviz validator: deutan ΔE 9.2 light / 9.4 dark, normal-vision
+    # 27.6 / 26.5, both passing. series-4 was the other candidate and is
+    # ruled out for the same reason it is there — yellow beside orange fails
+    # CVD separation outright. The light-mode contrast WARN on series-3
+    # (2.74:1) is discharged by the legend plus the direct monthly totals,
+    # per the validator's relief rule.
+    combined_html = ""
+    if d["lumpy_cats"]:
+        lumpy_name = and_list([CATEGORY_LABELS.get(c, c) for c in d["lumpy_cats"]])
+        split_colors = {"everyday": "var(--series-2)", "lumpy": "var(--series-3)"}
+        split_labels = {"everyday": "Everyday", "lumpy": lumpy_name}
+        # Derived from the same `underlying` the Expenses page draws, so the
+        # orange band here is the same number as that page's trend line by
+        # construction rather than by a second, parallel subtraction.
+        split_values = [dict(everyday=m["underlying"], lumpy=m["expense"] - m["underlying"])
+                        for m in d["monthly_series"]]
+        combined_html = f"""
+  <div class="card">
+    <h2>Everyday spending vs {esc(lumpy_name.lower())}</h2>
+    <div class="legend">
+      <span class="legend-key"><span class="legend-swatch" style="background:var(--series-2)"></span>Everyday</span>
+      <span class="legend-key"><span class="legend-swatch" style="background:var(--series-3)"></span>{esc(lumpy_name)}</span>
+    </div>
+    {render_stacked_bar_svg("exp-split", months_lbl, ["everyday", "lumpy"], split_values,
+                             split_colors, key_labels=split_labels,
+                             empty_text="No expenses in the ledger yet.", zero_text="No spending")}
   </div>"""
 
     warnings_html = ""
@@ -1062,15 +1121,9 @@ def page_dashboard(d, warnings):
         drawdowns = [r for r in d["investment_months"] if r["drawdown"]]
         total_inv = d["total_investment_all_time"]
         share = (total_inv / d["total_income_all_time"]) if d["total_income_all_time"] else None
-        note = (f"{len(drawdowns)} month{'' if len(drawdowns) == 1 else 's'} contributed more than "
-                f"the month netted — funded from savings, not income."
-                if drawdowns else
-                "Every funded month came out of that month's income.")
         investing_html = f"""
   <div class="card">
     <h2>Cash flow vs investing</h2>
-    <div class="card-sub">{esc(note)} Full breakdown on the
-      <a href="investments.html">Investments</a> tab.</div>
     <div class="tiles" style="margin-bottom:0;">
       {render_stat_tile_static("Contributed all time", money(total_inv), "var(--series-1)")}
       {render_stat_tile_static("Share of income", pct(share))}
@@ -1122,16 +1175,11 @@ def page_dashboard(d, warnings):
 
   <div class="card">
     <h2 id="h-dash-topcats">Category budget status</h2>
-    <div class="card-sub">% of each category's monthly target spent so far this month (not pace-adjusted —
-      just actual ÷ target). Sorted by budget size, largest first. Full detail, and editable targets, on
-      the <a href="budget.html">Budget page</a>.</div>
     <div id="dash-top-cats"></div>
   </div>
 
   <div class="card">
     <h2>Monthly trend</h2>
-    <div class="card-sub">The shaded gap between the lines is net cash flow — green where income is ahead, red
-      where expenses caught up or passed it. Click a point to jump the month toggle there.</div>
     <div class="legend">
       <span class="legend-key"><span class="legend-swatch" style="background:var(--series-1)"></span>Income</span>
       <span class="legend-key"><span class="legend-swatch" style="background:var(--series-2)"></span>Expenses</span>
@@ -1139,6 +1187,8 @@ def page_dashboard(d, warnings):
     </div>
     {render_trend_with_gap_svg("trend", months_lbl, income_vals, expense_vals)}
   </div>
+
+  {combined_html}
 
   <div class="card">
     <h2>Year to date — {esc(ytd_year)}</h2>
@@ -1205,48 +1255,35 @@ document.getElementById('reset-btn').addEventListener('click', () => { clearOver
 # --------------------------------------------------------- page: expenses
 
 def page_expenses(d):
-    # Total vs underlying spend (SPEC §5). Underlying drops the `lumpy`
-    # categories — the ones saved up for over months and then spent at once —
-    # so the trend line isn't dominated by when a flight happened to be
-    # booked. Total keeps the de-emphasis ink and underlying takes the
-    # expense accent, the same contract render_sparkline() uses: context
-    # recessive, the figure you actually read in the accent hue. The pair
-    # was checked with the dataviz validator in both themes (CVD ΔE 10.7
-    # light / 11.0 dark, normal-vision 21.7 / 16.6, contrast ≥3:1 both) —
-    # its one FAIL is the chroma floor, which is the *point* of a
-    # de-emphasis ink and is out of that check's categorical-palette scope.
-    # With nothing lumpy the two lines would be identical, so fall back to
-    # the single-series chart (and no legend, per the >=2-series rule).
+    # Lumpy categories are off this page entirely (user decision 2026-11-16).
+    # Travel is saved up for across months and then spent in one go, so a
+    # booking is not "this month's spending" in the sense the rest of this
+    # page means it — and as a single charge it dominated the trend line, the
+    # category ranking and the biggest-purchases list at the same time. It is
+    # read on its own terms on the Travel tab, and the two are put back
+    # together on the Dashboard ("Everyday spending vs travel"). Every figure
+    # below is therefore ex-lumpy, which is also why the trend is one series:
+    # `underlying` IS this page's expense total now, so a second "Total" line
+    # would be another page's number drawn on this one's chart.
     lumpy_labels = [CATEGORY_LABELS.get(c, c).lower() for c in d["lumpy_cats"]]
-    total_vals = [m["expense"] for m in d["monthly_series"]]
+    everyday_vals = [m["underlying"] for m in d["monthly_series"]]
+    # One series, so it takes the accent (a lone line is never recessive)
+    # and needs no legend - the heading names it.
+    exp_trend_series = [dict(name="Expenses", color="var(--series-2)", values=everyday_vals)]
     exp_trend_legend = ""
-    exp_trend_sub = "Click a point to jump the month toggle there."
-    if not lumpy_labels:
-        # One series, so it takes the accent (a lone line is never recessive)
-        # and needs no legend - the heading names it.
-        exp_trend_series = [dict(name="Expenses", color="var(--series-2)", values=total_vals)]
-    else:
-        exp_trend_series = [
-            dict(name="Total", color="var(--text-muted)", values=total_vals),
-            dict(name="Underlying", color="var(--series-2)",
-                 values=[m["underlying"] for m in d["monthly_series"]]),
-        ]
-        exp_trend_sub = (
-            f"<strong>Underlying</strong> is total spend minus {and_list(lumpy_labels)} — "
-            "lumpy spending, saved up across months and then spent in one go, so it says more about "
-            "when something was booked than about the month it lands in. Read the trend off the "
-            "underlying line; the total is what actually left the account. Click a point to jump the "
-            "month toggle there.")
-        exp_trend_legend = """
-    <div class="legend">
-      <span class="legend-key"><span class="legend-swatch" style="background:var(--series-2)"></span>Underlying</span>
-      <span class="legend-key"><span class="legend-swatch" style="background:var(--text-muted)"></span>Total</span>
-    </div>"""
+    excluded_sub = "" if not lumpy_labels else f" · {and_list(lumpy_labels)} excluded"
+    excluded_banner = "" if not lumpy_labels else f"""
+  <div class="banner">{esc(and_list(lumpy_labels).capitalize())} is not counted anywhere on this page —
+    it is one-off spend, saved up for and then paid in a lump, so pooling it with groceries and parking
+    distorts both the monthly trend and the category ranking. Every charge, trip by trip, is on the
+    <a href="travel.html">Travel</a> tab; the <a href="index.html">Dashboard</a> shows the two together
+    and {esc(money(d["total_expense_all_time"]))} all-time combined.</div>"""
     body = f"""
   <div class="page-header">
     <h1>Expenses</h1>
-    <div class="subtitle">{d['n_months']} months loaded · {money(d['total_expense_all_time'])} all-time</div>
+    <div class="subtitle">{d['n_months']} months loaded · {money(d['total_everyday_all_time'])} all-time{excluded_sub}</div>
   </div>
+  {excluded_banner}
 
   <div class="month-toggle">
     <label for="month-select">Month</label>
@@ -1257,7 +1294,7 @@ def page_expenses(d):
     <h2 id="h-cumulative">Discretionary: cumulative spend vs. pace</h2>
     <div class="card-sub">
       <span class="legend-key"><span class="legend-swatch" style="background:var(--series-2)"></span>Running total</span>
-      &nbsp;&nbsp;<span class="legend-key"><span class="legend-swatch" style="background:var(--text-muted); border-top:2px dashed var(--text-muted); height:0;"></span>Even pace toward {esc(money(sum(d["targets"].get(c, 0) for c in d["discretionary_order"])))}/mo (discretionary only)</span>
+      &nbsp;&nbsp;<span class="legend-key"><span class="legend-swatch" style="background:var(--text-muted); border-top:2px dashed var(--text-muted); height:0;"></span>Even pace toward {esc(money(sum(d["targets"].get(c, 0) for c in d["pooled_discretionary"])))}/mo (paced discretionary only)</span>
     </div>
     <div id="cumulative-chart"></div>
   </div>
@@ -1269,13 +1306,11 @@ def page_expenses(d):
 
   <div class="card">
     <h2 id="h-bycat">By category</h2>
-    <div class="card-sub">Click a category to filter the transaction list below to just that category.</div>
     <div id="month-bars"></div>
   </div>
 
   <div class="card">
     <h2>Monthly expense trend</h2>
-    <div class="card-sub">{exp_trend_sub}</div>
     {exp_trend_legend}
     {render_line_svg("exp-trend", [month_label(m["month"]) for m in d["monthly_series"]],
                       exp_trend_series,
@@ -1284,7 +1319,7 @@ def page_expenses(d):
 
   <div class="card">
     <h2>By category — all time</h2>
-    {render_bar_chart_svg(d["all_time_expense_ranked"], "var(--series-2)")}
+    {render_bar_chart_svg(d["all_time_everyday_ranked"], "var(--series-2)")}
   </div>
 
   <div class="card">
@@ -1300,6 +1335,16 @@ def page_expenses(d):
     init_js = f"""
 const CATEGORY_LABELS = {json.dumps(CATEGORY_LABELS)};
 function labelFor(cat) {{ return CATEGORY_LABELS[cat] || cat; }}
+// Lumpy categories (travel) are excluded from this page — see page_expenses()
+// in build_dashboard.py. window.DATA still carries them, because the Dashboard
+// combines the two; the filtering is here, at the one page that drops them, so
+// no other view has to know about it.
+const LUMPY = new Set(window.DATA.lumpyCats || []);
+const isEveryday = (t) => !LUMPY.has(t.category);
+// The paced pool, i.e. discretionary minus lumpy — the same set poolResult()
+// pools in app.js, so the cumulative line and its target agree with the
+// Budget page instead of quietly counting travel into one of them.
+const PACED_DISCRETIONARY = window.DATA.order.discretionary.filter(c => !LUMPY.has(c));
 let selectedCategory = null;
 let currentMonthIdx = window.DATA.months.length - 1;
 
@@ -1322,7 +1367,8 @@ function renderFilterChip() {{
 function renderTxnSection() {{
   const DATA = window.DATA;
   const query = document.getElementById('txn-search').value;
-  const searchResults = searchTransactions(DATA, 'expenseTxns', query);
+  const allResults = searchTransactions(DATA, 'expenseTxns', query);
+  const searchResults = allResults && allResults.filter(isEveryday);
   renderFilterChip();
   const noteEl = document.getElementById('search-note');
   if (searchResults) {{
@@ -1334,7 +1380,8 @@ function renderTxnSection() {{
     noteEl.textContent = '';
     const month = DATA.months[currentMonthIdx];
     const m = DATA.byMonth[month];
-    const filtered = selectedCategory ? m.expenseTxns.filter(t => t.category === selectedCategory) : m.expenseTxns;
+    const everyday = m.expenseTxns.filter(isEveryday);
+    const filtered = selectedCategory ? everyday.filter(t => t.category === selectedCategory) : everyday;
     renderTxnTable(document.getElementById('month-txns'), filtered, labelFor);
   }}
 }}
@@ -1349,13 +1396,14 @@ function renderExpenses(monthIdx) {{
   document.getElementById('h-cumulative').textContent = 'Discretionary: cumulative spend vs. pace — ' + label;
   document.getElementById('h-purchases').textContent = 'Biggest purchases — ' + label;
   document.getElementById('h-bycat').textContent = 'By category — ' + label;
-  const ranked = Object.entries(m.expenseByCat).sort((a,b) => b[1]-a[1]).map(([c,v]) => [c, labelFor(c), v]);
+  const ranked = Object.entries(m.expenseByCat).filter(([c]) => !LUMPY.has(c))
+    .sort((a,b) => b[1]-a[1]).map(([c,v]) => [c, labelFor(c), v]);
   renderBarList(document.getElementById('month-bars'), ranked, 'var(--series-2)', fmtMoney, {{
     onClick: (catKey) => {{ selectedCategory = (selectedCategory === catKey) ? null : catKey; renderExpenses(currentMonthIdx); }},
     selectedKey: selectedCategory,
   }});
-  renderCumulativeChart(document.getElementById('cumulative-chart'), DATA, monthIdx, DATA.order.discretionary);
-  renderTopPurchases(document.getElementById('top-purchases'), m.expenseTxns, labelFor, 5);
+  renderCumulativeChart(document.getElementById('cumulative-chart'), DATA, monthIdx, PACED_DISCRETIONARY);
+  renderTopPurchases(document.getElementById('top-purchases'), m.expenseTxns.filter(isEveryday), labelFor, 5);
   renderTxnSection();
 }}
 populateMonthSelect(document.getElementById('month-select'), window.DATA, renderExpenses);
@@ -1380,7 +1428,6 @@ def page_income(d):
 
   <div class="card">
     <h2>Monthly income trend</h2>
-    <div class="card-sub">Click a point to jump the month toggle there.</div>
     {render_line_svg("inc-trend", [month_label(m["month"]) for m in d["monthly_series"]],
                       [dict(name="Income", color="var(--series-1)", values=[m["income"] for m in d["monthly_series"]])],
                       lambda v: f"{v/1000:.1f}k", money)}
@@ -1388,7 +1435,6 @@ def page_income(d):
 
   <div class="card">
     <h2 id="h-bysource">By source</h2>
-    <div class="card-sub">Click a source to filter the transaction list below to just that source.</div>
     <div id="month-bars"></div>
   </div>
 
@@ -1551,15 +1597,12 @@ def page_investments(d):
 
   <div class="card">
     <h2>Monthly contributions by account</h2>
-    <div class="card-sub">Hover a month for the split; click it to move the month toggle there.</div>
     {render_legend([(INVESTMENT_LABELS[k], INVESTMENT_COLORS[k]) for k in keys])}
     {render_stacked_bar_svg("inv-stack", months_lbl, keys, values_by_month, INVESTMENT_COLORS)}
   </div>
 
   <div class="card">
     <h2>Funded out of income, or out of savings?</h2>
-    <div class="card-sub">Contributions against net cash flow (income − expenses) for the same month.
-      Where the solid line is above the dashed one, the month invested more than it earned.</div>
     {render_legend([("Contributed", "var(--series-1)"), ("Net cash flow", "var(--text-secondary)")], dashed_last=True)}
     {render_line_svg("inv-vs-net", months_lbl,
                      [dict(name="Contributed", color="var(--series-1)", values=inv_vals),
@@ -1569,9 +1612,6 @@ def page_investments(d):
 
   <div class="card">
     <h2>Mix — all time</h2>
-    <div class="card-sub">The actual split. The source Budget sheet's 70/20/10
-      brokerage/emergency/crypto is descriptive, not an allocation target, so there's no target
-      line here to miss.</div>
     {render_legend([(INVESTMENT_LABELS[k], INVESTMENT_COLORS[k]) for k in keys])}
     {render_mix_bar(d["all_time_investment_ranked"], INVESTMENT_COLORS)}
   </div>
@@ -1645,11 +1685,6 @@ def page_budget(d):
         render_meter_skeleton(c, CATEGORY_LABELS[c], d["cadence_of"][c]) for c in d["baseline_order"])
     pooled_meters = "".join(
         render_meter_skeleton(c, CATEGORY_LABELS[c], d["cadence_of"][c]) for c in d["pooled_discretionary"])
-    # Only mention the lumpy card when there is one — every discretionary
-    # category is `variable` as of 2026-08-11, so it usually renders nothing.
-    pool_scope_note = ("Only variable-cadence categories are pooled here — lumpy ones are tracked separately below."
-                       if d["lumpy_discretionary"] else
-                       "Every discretionary category is variable-cadence right now, so all of them are pooled here.")
 
     # The meter only. Accrual, spend, the monthly table and the charge list
     # live on the Buckets tab (user decision 2026-11-11) — this page is
@@ -1672,10 +1707,6 @@ def page_budget(d):
     lumpy_card = "" if not d["lumpy_discretionary"] else f"""
   <div class="card">
     <h2>Lumpy / one-off spending — saved up for, not paced</h2>
-    <div class="card-sub">These don't pace evenly within a month by design (SPEC §5: "a trip is one decision, not a
-      monthly overrun") — pooling them would make one early-month purchase read as the whole pool being over pace.
-      Each is run as a <strong>sinking fund</strong> instead: the monthly target accrues into a bucket and spending
-      draws it down, so the number to read is the balance, not a percentage.</div>
     {lumpy_blocks}
   </div>"""
 
@@ -1703,14 +1734,11 @@ def page_budget(d):
 
   <div class="card">
     <h2>Baseline — checked per category</h2>
-    <div class="card-sub">Fixed = paid or not. Variable = pace-adjusted against day of month. Click a target to edit it.</div>
     {baseline_meters}
   </div>
 
   <div class="card">
     <h2>Discretionary — day to day, checked as one pool</h2>
-    <div class="card-sub">Individual categories swing a lot month to month; the pooled total is the real constraint (SPEC §5).
-      {pool_scope_note}</div>
     {render_pool_skeleton("pool-discretionary", "Variable-cadence discretionary spend, pooled")}
     <div class="group-label">Individual categories — guides, edit targets here, pool above reflects them</div>
     {pooled_meters}
@@ -1720,8 +1748,6 @@ def page_budget(d):
 
   <div class="card">
     <h2>Discretionary pool, over time</h2>
-    <div class="card-sub">Variable-cadence categories only, same as the pool above. 100% = right on target for that
-      month. Uses config defaults, not your edits above (historical view). Click a point to jump the month toggle there.</div>
     {render_line_svg("pool-hist", [month_label(h["month"]) for h in d["monthly_pool_history"]],
                       history_series, lambda v: f"{v:.0f}%", lambda v: f"{v:.0f}%")}
     <table class="data-table" style="margin-top:14px">
@@ -1818,9 +1844,6 @@ def render_trips_card(d):
     return f"""
   <div class="card">
     <h2>By trip</h2>
-    <div class="card-sub">Hand-maintained windows from <code>config/trips.yml</code>, because a trip is not a
-      date range the build can infer: a booking sits outside the trip it pays for, so each trip lists its own
-      windows. Bars compare trips against the largest, not against a budget — there are no per-trip budgets.</div>
     {bars}
     {unassigned_html}
     {empty_note}
@@ -1880,9 +1903,6 @@ def page_travel(d):
         txn_table = "" if not txns else f"""
   <div class="card">
     <h2>Every {esc(label.lower())} charge — {len(txns)} of them</h2>
-    <div class="card-sub">Newest first. No trip grouping: a booking and the trip it pays for are months apart
-      (the Korea flight was booked {esc(month_label('2026-02'))}, the trip was {esc(month_label('2026-04'))}), so there is
-      no date range to group on and no trip tag in the data. Read the trips off the descriptions for now.</div>
     <table class="data-table">
       <thead><tr><th>Date</th><th>Description</th><th class="num">Amount</th></tr></thead>
       <tbody>{txn_rows}</tbody>
@@ -1893,9 +1913,6 @@ def page_travel(d):
         sections += f"""
   <div class="card">
     <h2>{esc(label)} bucket</h2>
-    <div class="card-sub">{esc(money(rate))}/mo has been accruing since {esc(since)}, and {esc(label.lower())}
-      spending draws it down. The balance carries across years and may go negative — below zero means spending has
-      outrun the accrual cumulatively, not that a single month went over.</div>
     <div class="tiles">
       {render_stat_tile_static("Accumulated", money(accrued), "var(--series-1)",
                                 sub=f"{money(rate)}/mo x {len(fund)} months")}
@@ -1909,8 +1926,6 @@ def page_travel(d):
 
   <div class="card">
     <h2>Accumulated vs spent</h2>
-    <div class="card-sub">Both running totals since {esc(since)}. The vertical gap between the lines is the
-      balance — accrual above spending means money in the bucket, spending above accrual means it is overdrawn.</div>
     <div class="legend">
       <span class="legend-key"><span class="legend-swatch" style="background:var(--series-1)"></span>Accumulated</span>
       <span class="legend-key"><span class="legend-swatch" style="background:var(--series-2)"></span>Spent</span>
@@ -1923,8 +1938,6 @@ def page_travel(d):
 
   <div class="card">
     <h2>Balance over time</h2>
-    <div class="card-sub">The same two series as one number: what is actually in the bucket. It climbs through
-      months with little or no {esc(label.lower())} spending and drops on the day something gets booked.</div>
     {render_line_svg("fund-" + c, [month_label(f["month"]) for f in fund],
                       [dict(name="Balance", color="var(--series-2)", values=[f["balance"] for f in fund])],
                       money_compact, money)}
@@ -1932,8 +1945,6 @@ def page_travel(d):
 
   <div class="card">
     <h2>Month by month</h2>
-    <div class="card-sub">Newest first. <strong>Added</strong> is the monthly accrual, <strong>spent</strong> is
-      actual {esc(label.lower())} spending that month, and <strong>balance</strong> is the running total of the two.</div>
     <table class="data-table">
       <thead><tr><th>Month</th><th class="num">Added</th><th class="num">Spent</th><th class="num">Balance</th></tr></thead>
       <tbody>{rows}</tbody>
