@@ -19,14 +19,30 @@ everything derives from one place instead of being hand-maintained in five.
   `config/categories.yml`. If it doesn't match one, the loader fails loudly
   instead of silently dropping it.
 - **Budget** — `config/budgets.yml` and `config/envelopes.yml` define spending
-  targets per category. Budgets are versioned by time, so correcting a target
-  going forward doesn't rewrite past history.
+  targets per category. Targets carry an `effective_from` date and the schema
+  stores them that way, but the dashboard doesn't resolve per-month targets
+  yet: it applies one current target to every month, so editing a number
+  re-scores past months too. Real time-versioning is still to build.
 - **Dashboard** — `scripts/build_dashboard.py` generates the static site in
   `site/`, which shows income, expenses, investment contributions, and
   budget-vs-actual by category.
 
 Nothing is ever stored as a precomputed subtotal — everything on the dashboard
 is derived fresh from the transaction-level data.
+
+## Tests
+
+```
+python3 -m unittest discover tests
+```
+
+Two suites, both stdlib-only: `test_loader_fails_loud.py` pins the
+fail-loud contract (unmapped categories, per-kind mismatches, case-ambiguous
+config), and `test_fund_parity.py` asserts that the sinking-fund maths in
+`build_dashboard.py` and in `site/app.js` still agree month by month — they're
+two implementations of the same formula, and nothing else keeps them in step.
+The parity suite needs `data/budget.db`, `site/data.js` and `node`, and skips
+itself without them.
 
 ## Stack
 

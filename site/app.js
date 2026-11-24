@@ -272,6 +272,20 @@ function renderPoolRow(rootEl, result) {
     fmtMoney(result.actual) + ' vs ' + fmtMoney(result.expected) + ' expected';
 }
 
+// The one-line bucket state under a lumpy meter on the Budget page. Reads
+// the same categoryResult() as the meter directly above it, so an edited
+// accrual rate moves both or neither - this line used to be baked into the
+// HTML at build time and would keep showing the configured rate's figure
+// while the meter beside it recomputed against the override.
+function renderBucketStates(DATA, monthIdx) {
+  document.querySelectorAll('.bucket-state').forEach(el => {
+    const balance = categoryResult(DATA, el.dataset.cat, monthIdx).balance;
+    if (balance === null) { el.textContent = ''; return; }
+    el.textContent = balance >= 0 ? fmtMoney(balance) + ' in the bucket'
+                                  : fmtMoney(-balance) + ' overdrawn';
+  });
+}
+
 function renderBarList(containerEl, entries, color, fmt, opts) {
   // entries: [[catKey, label, value], ...].
   // opts: {onClick(catKey), selectedKey, colorFor(catKey)}

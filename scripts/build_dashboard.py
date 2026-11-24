@@ -313,6 +313,7 @@ def compute(categories_cfg, targets, txns, accounts_cfg=None):
     # month's groceries. Derived per month, never stored. The list is empty
     # when no category is lumpy, and the chart falls back to one line.
     lumpy_cats = sorted(c for c, cad in cadence_of.items() if cad == "lumpy")
+    lumpy_set = frozenset(lumpy_cats)
 
     def underlying_for(m):
         lump = sum(by_month[m]["expenseByCat"].get(c, 0.0) for c in lumpy_cats)
@@ -484,10 +485,10 @@ def compute(categories_cfg, targets, txns, accounts_cfg=None):
         # to the full ranking rather than subtracted in the page, so the two
         # can never disagree about what "everyday" means.
         all_time_everyday_ranked=sorted(
-            ((c, v) for c, v in all_time_cat.items() if c not in set(lumpy_cats)),
+            ((c, v) for c, v in all_time_cat.items() if c not in lumpy_set),
             key=lambda kv: -kv[1]),
-        total_everyday_all_time=sum(v for c, v in all_time_cat.items() if c not in set(lumpy_cats)),
-        total_lumpy_all_time=sum(v for c, v in all_time_cat.items() if c in set(lumpy_cats)),
+        total_everyday_all_time=sum(v for c, v in all_time_cat.items() if c not in lumpy_set),
+        total_lumpy_all_time=sum(v for c, v in all_time_cat.items() if c in lumpy_set),
         all_time_income_ranked=sorted(all_time_income_cat.items(), key=lambda kv: -kv[1]),
         all_time_transfer_ranked=sorted(all_time_transfer_cat.items(), key=lambda kv: -kv[1]),
         all_time_investment_ranked=sorted(all_time_investment_cat.items(), key=lambda kv: -kv[1]),
@@ -942,7 +943,7 @@ def render_static_bar(label, value_text, frac, color):
 def render_meter_skeleton(cat, label, cadence, editable=True):
     input_html = (f'<span class="target-input-wrap"><span class="prefix">$</span>'
                   f'<input type="number" class="target-input" id="input-{cat}" data-cat="{esc(cat)}" step="1" min="0"></span>'
-                  if editable else '<span class="meter-target" id="target-{cat}"></span>')
+                  if editable else f'<span class="meter-target" id="target-{esc(cat)}"></span>')
     return f"""
     <div class="meter-row" id="meter-{cat}" data-cat="{esc(cat)}">
       <div class="meter-head">
@@ -984,7 +985,19 @@ def render_txn_table_static(txns, amount_label="Amount"):
 
 # ---------------------------------------------------------------- shell ---
 
-def render_shell(title, active_file, body_html, client_data, init_js):
+def render_data_js(client_data):
+    """The client payload, emitted once as its own file.
+
+    It used to be inlined into every page by render_shell, which meant the
+    same ~55 KB of JSON was written into all seven of them — identical byte
+    for byte, so a single new transaction rewrote seven near-duplicate blobs
+    into git. One file, linked by every page, keeps the pages small and
+    stable: only this file churns when the data changes.
+    """
+    return f"window.DATA = {json.dumps(client_data)};\n"
+
+
+def render_shell(title, active_file, body_html, init_js):
     nav_links = "".join(
         f'<a href="{href}"{" class=\"active\"" if href == active_file else ""}>{label}</a>'
         for href, label in NAV
@@ -1006,9 +1019,9 @@ def render_shell(title, active_file, body_html, client_data, init_js):
 {body_html}
 </div>
 <div id="tooltip"></div>
+<script src="data.js"></script>
 <script src="app.js"></script>
 <script>
-window.DATA = {json.dumps(client_data)};
 {init_js}
 </script>
 </body>
@@ -1249,7 +1262,7 @@ populateMonthSelect(document.getElementById('month-select'), window.DATA, render
 renderDashboard(window.DATA.months.length - 1);
 document.getElementById('reset-btn').addEventListener('click', () => { clearOverrides(); renderDashboard(Number(document.getElementById('month-select').value)); });
 """
-    return render_shell("Dashboard", "index.html", body, d["client_data"], init_js)
+    return render_shell("Dashboard", "index.html", body, init_js)
 
 
 # --------------------------------------------------------- page: expenses
@@ -1409,7 +1422,7 @@ function renderExpenses(monthIdx) {{
 populateMonthSelect(document.getElementById('month-select'), window.DATA, renderExpenses);
 renderExpenses(currentMonthIdx);
 """
-    return render_shell("Expenses", "expenses.html", body, d["client_data"], init_js)
+    return render_shell("Expenses", "expenses.html", body, init_js)
 
 
 # ----------------------------------------------------------- page: income
@@ -1512,7 +1525,7 @@ function renderIncome(monthIdx) {{
 populateMonthSelect(document.getElementById('month-select'), window.DATA, renderIncome);
 renderIncome(currentMonthIdx);
 """
-    return render_shell("Income", "income.html", body, d["client_data"], init_js)
+    return render_shell("Income", "income.html", body, init_js)
 
 
 
@@ -1552,7 +1565,7 @@ def page_investments(d):
   </div>
 
   <footer class="page-footer">Built from data/budget.db · not committed, not shared</footer>"""
-        return render_shell("Investments", "investments.html", body, d["client_data"], "")
+        return render_shell("Investments", "investments.html", body, "")
 
     inv_vals = [m["investment"] for m in d["monthly_series"]]
     net_vals = [m["income"] - m["expense"] for m in d["monthly_series"]]
@@ -1675,7 +1688,7 @@ function renderInvestments(monthIdx) {
 populateMonthSelect(document.getElementById('month-select'), window.DATA, renderInvestments);
 renderInvestments(currentMonthIdx);
 """
-    return render_shell("Investments", "investments.html", body, d["client_data"], init_js)
+    return render_shell("Investments", "investments.html", body, init_js)
 
 
 # ----------------------------------------------------------- page: budget
@@ -1691,17 +1704,21 @@ def page_budget(d):
     # about targets, and duplicating the chart in both places would mean two
     # copies to keep honest. A one-line state summary stays here so the
     # Budget page is not silent about where the bucket actually stands.
+    # The bucket figure is hydrated client-side rather than baked in here.
+    # It used to be rendered from `targets` at build time, which put a fixed
+    # number directly beneath a meter that recomputes against the editable
+    # target in the same card: typing a new accrual rate into the input moved
+    # the meter and left this line stating the old figure. Both now read the
+    # one `categoryResult()` for the selected month, so they cannot disagree.
     lumpy_blocks = ""
     for c in d["lumpy_discretionary"]:
         lumpy_blocks += render_meter_skeleton(c, CATEGORY_LABELS[c], d["cadence_of"][c])
-        fund = d["lumpy_funds"].get(c)
-        if not fund:
+        if not d["lumpy_funds"].get(c):
             continue
         label = CATEGORY_LABELS.get(c, c)
-        end = fund[-1]["balance"]
-        state = f"{money(end)} in the bucket" if end >= 0 else f"{money(-end)} overdrawn"
         lumpy_blocks += f"""
-    <div class="meter-note" style="margin-top:6px">{esc(label)} bucket: <strong>{esc(state)}</strong> —
+    <div class="meter-note" style="margin-top:6px">{esc(label)} bucket:
+      <strong class="bucket-state" data-cat="{esc(c)}"></strong> —
       <a href="travel.html">accrual, spending and history on the Travel tab →</a></div>"""
 
     lumpy_card = "" if not d["lumpy_discretionary"] else f"""
@@ -1774,6 +1791,7 @@ function renderBudgetPage(monthIdx) {
     if (row) renderMeterRow(row, categoryResult(DATA, cat, monthIdx));
   });
   renderPoolRow(document.getElementById('pool-discretionary'), poolResult(DATA, monthIdx, 'discretionary'));
+  renderBucketStates(DATA, monthIdx);
 }
 
 document.querySelectorAll('.target-input').forEach(input => {
@@ -1789,7 +1807,7 @@ document.getElementById('reset-btn').addEventListener('click', () => {
 populateMonthSelect(document.getElementById('month-select'), window.DATA, renderBudgetPage);
 renderBudgetPage(currentMonthIdx);
 """
-    return render_shell("Budget", "budget.html", body, d["client_data"], init_js)
+    return render_shell("Budget", "budget.html", body, init_js)
 
 
 def render_trips_card(d):
@@ -1971,7 +1989,7 @@ def page_travel(d):
 
   <footer class="page-footer">Built from data/budget.db · accrual rates come from config/budgets.yml ·
     balances are derived, never stored</footer>"""
-    return render_shell("Travel", "travel.html", body, d["client_data"], "")
+    return render_shell("Travel", "travel.html", body, "")
 
 
 # ----------------------------------------------------------- page: import
@@ -2097,7 +2115,7 @@ async function loadPending() {
 }
 loadPending();
 """
-    return render_shell("Import", "import.html", body, d["client_data"], init_js)
+    return render_shell("Import", "import.html", body, init_js)
 
 
 # ---------------------------------------------------------------- main ----
@@ -2123,7 +2141,8 @@ def main():
     }
     for name, html in pages.items():
         (SITE_DIR / name).write_text(html)
-    print(f"Wrote {len(pages)} pages to {SITE_DIR.relative_to(ROOT)}/")
+    (SITE_DIR / "data.js").write_text(render_data_js(d["client_data"]))
+    print(f"Wrote {len(pages)} pages + data.js to {SITE_DIR.relative_to(ROOT)}/")
 
 
 if __name__ == "__main__":
